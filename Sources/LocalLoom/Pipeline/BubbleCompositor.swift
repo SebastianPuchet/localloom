@@ -22,6 +22,25 @@ final class BubbleCompositor {
     private var bubbleMask = CIImage.empty()
     private var ringImage = CIImage.empty()
 
+    /// Normalized (0...1, bottom-left origin) centre of the bubble in the output frame.
+    /// Written from the main actor when the floating camera circle is dragged, read on the
+    /// capture queue for every frame — hence the lock.
+    private let positionLock = NSLock()
+    private var storedPosition = RecordingSettings.defaultBubblePosition
+
+    var bubblePosition: CGPoint {
+        get {
+            positionLock.lock()
+            defer { positionLock.unlock() }
+            return storedPosition
+        }
+        set {
+            positionLock.lock()
+            storedPosition = newValue
+            positionLock.unlock()
+        }
+    }
+
     init?() {
         guard let device = MTLCreateSystemDefaultDevice() else { return nil }
         context = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
@@ -36,7 +55,12 @@ final class BubbleCompositor {
         var image = CIImage(cvPixelBuffer: screen)
         if let camera {
             prepareBubbleGeometry(width: width, height: height)
-            if let bubble = makeBubble(camera: camera) { image = bubble.composited(over: image) }
+            let origin = RecordingSettings.bubbleOrigin(
+                position: bubblePosition, diameter: bubbleDiameter,
+                width: width, height: height)
+            if let bubble = makeBubble(camera: camera, origin: origin) {
+                image = bubble.composited(over: image)
+            }
         }
         context.render(
             image, to: output,
@@ -55,7 +79,7 @@ final class BubbleCompositor {
             color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.9))
     }
 
-    private func makeBubble(camera: CVPixelBuffer) -> CIImage? {
+    private func makeBubble(camera: CVPixelBuffer, origin: CGPoint) -> CIImage? {
         let diameter = bubbleDiameter
         let camImage = CIImage(cvPixelBuffer: camera)
         let extent = camImage.extent
@@ -84,11 +108,10 @@ final class BubbleCompositor {
         ])?.outputImage else { return nil }
 
         let ringOffset = RecordingSettings.bubbleRingWidth
-        let inset = RecordingSettings.bubbleInset(diameter: diameter)
-        let ring = ringImage.transformed(
-            by: CGAffineTransform(translationX: inset - ringOffset, y: inset - ringOffset))
+        let ring = ringImage.transformed(by: CGAffineTransform(
+            translationX: origin.x - ringOffset, y: origin.y - ringOffset))
         return masked
-            .transformed(by: CGAffineTransform(translationX: inset, y: inset))
+            .transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
             .composited(over: ring)
     }
 

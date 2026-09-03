@@ -16,8 +16,27 @@ enum RecordingSettings {
         min(320, CGFloat(min(width, height)) * 0.22)
     }
 
-    /// Inset of the bubble from the bottom-left corner of the frame, in output pixels.
-    static func bubbleInset(diameter: CGFloat) -> CGFloat { diameter * 0.15 }
+    /// Keep-out margin between the bubble and the frame edge, in output pixels.
+    static func bubbleMargin(diameter: CGFloat) -> CGFloat { diameter * 0.15 }
+
+    /// Where the bubble sits in the recorded frame, normalized 0...1 on each axis and
+    /// measured to the bubble's *centre*. The origin is bottom-left, which is what both
+    /// AppKit screen coordinates and `CIImage` use — so a screen-space drag maps across
+    /// with no vertical flip. Default is the classic bottom-left corner.
+    static let defaultBubblePosition = CGPoint(x: 0.12, y: 0.18)
+
+    /// Bottom-left origin of the bubble, in output pixels, for a normalized centre.
+    /// Clamped so the bubble is always fully inside the frame.
+    static func bubbleOrigin(
+        position: CGPoint, diameter: CGFloat, width: Int, height: Int
+    ) -> CGPoint {
+        let margin = bubbleMargin(diameter: diameter)
+        let maxX = max(margin, CGFloat(width) - diameter - margin)
+        let maxY = max(margin, CGFloat(height) - diameter - margin)
+        let x = min(max(position.x * CGFloat(width) - diameter / 2, margin), maxX)
+        let y = min(max(position.y * CGFloat(height) - diameter / 2, margin), maxY)
+        return CGPoint(x: x, y: y)
+    }
 
     /// Width of the white ring drawn around the bubble, in output pixels.
     static let bubbleRingWidth: CGFloat = 4
