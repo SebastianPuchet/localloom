@@ -81,6 +81,7 @@ final class MovieWriter: @unchecked Sendable {
             guard let self, !self.finished else { return }
             if !self.sessionStarted {
                 self.writer.startSession(atSourceTime: presentationTime)
+                self.writerSessionStart = presentationTime
                 self.sessionStarted = true
                 self.startWatchdog()
             }
@@ -111,7 +112,6 @@ final class MovieWriter: @unchecked Sendable {
 
     /// Caller must already be on `queue`.
     private func write(_ pixelBuffer: CVPixelBuffer, at presentationTime: CMTime) {
-        if writerSessionStart == .zero { writerSessionStart = presentationTime }
         // Backpressure: dropping a frame is always better than blocking the capture queue.
         guard videoInput.isReadyForMoreMediaData else {
             droppedFrames += 1

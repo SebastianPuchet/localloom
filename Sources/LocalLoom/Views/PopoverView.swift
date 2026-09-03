@@ -19,6 +19,12 @@ struct PopoverView: View {
             pickers
                 .disabled(coordinator.state.isBusy)
 
+            if let error = catalog.lastError, catalog.sources.isEmpty {
+                Label(error, systemImage: "display.trianglebadge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let notice = coordinator.notice {
                 Label(notice, systemImage: "exclamationmark.triangle")
                     .font(.caption)
