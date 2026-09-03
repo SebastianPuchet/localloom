@@ -12,51 +12,105 @@ final class RecordingCoordinator: ObservableObject {
         case idle
         case preparing
         case recording
+        case paused
         case finalizing
         case failed(String)
 
         var isBusy: Bool {
             switch self {
-            case .preparing, .recording, .finalizing: return true
+            case .preparing, .recording, .paused, .finalizing: return true
             case .idle, .failed: return false
+            }
+        }
+
+        /// Capturing right now, whether or not frames are being written.
+        var isActive: Bool {
+            switch self {
+            case .recording, .paused: return true
+            default: return false
             }
         }
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet {
+            guard !isSettingUp, state != oldValue else { return }
+            syncCameraSession()
+            OverlayController.shared.update()
+        }
+    }
     @Published private(set) var elapsed: TimeInterval = 0
     /// Non-fatal notice shown in the popover, e.g. "camera disconnected".
     @Published var notice: String?
+    /// True while a camera session is actually delivering frames.
+    @Published private(set) var cameraActive = false
+    /// The menu bar popover is on screen. The floating overlays follow it.
+    @Published private(set) var popoverOpen = false
 
     @Published var selectedSourceID: SourceID? {
-        didSet { Preferences.sourceID = selectedSourceID?.rawValue }
+        didSet {
+            Preferences.sourceID = selectedSourceID?.rawValue
+            guard !isSettingUp, selectedSourceID != oldValue else { return }
+            OverlayController.shared.update()
+        }
     }
     @Published var selectedCameraID: String? {
-        didSet { Preferences.cameraID = selectedCameraID }
+        didSet {
+            Preferences.cameraID = selectedCameraID
+            guard !isSettingUp, selectedCameraID != oldValue else { return }
+            syncCameraSession()
+            OverlayController.shared.update()
+        }
     }
     @Published var selectedMicrophoneID: String? {
         didSet { Preferences.microphoneID = selectedMicrophoneID }
     }
 
+    /// Normalized (0...1, bottom-left origin) centre of the webcam bubble. Dragging the
+    /// floating camera circle writes here, and the compositor reads it for every frame —
+    /// so where the circle sits on screen is where it lands in the MP4.
+    @Published var bubblePosition: CGPoint {
+        didSet {
+            Preferences.bubblePosition = bubblePosition
+            compositor?.bubblePosition = bubblePosition
+        }
+    }
+
     let catalog = SourceCatalog()
+    let cameraFrames = LatestCamFrame()
 
     private var capturer: ScreenCapturer?
     private var camera: CameraCapturer?
+    /// Device ID of the session we currently want running, nil when none.
+    private var runningCameraID: String?
+    private var cameraTask: Task<Void, Never>?
     private var writer: MovieWriter?
+    /// Kept for the app's lifetime so the bubble position survives between recordings.
+    private var compositor: BubbleCompositor?
     private var startTask: Task<Void, Never>?
     private var cancelRequested = false
     private var isStopping = false
     private var startedAt: Date?
+    private var accumulatedElapsed: TimeInterval = 0
     private var timer: Timer?
     private var diskTimer: Timer?
+    /// `OverlayController` reaches back for `RecordingCoordinator.shared`, so the property
+    /// observers must stay quiet until this singleton has finished initializing.
+    private var isSettingUp = true
 
     private init() {
+        bubblePosition = Preferences.bubblePosition
         if let raw = Preferences.sourceID { selectedSourceID = SourceID(rawValue: raw) }
         selectedCameraID = Preferences.cameraID
         selectedMicrophoneID = Preferences.microphoneID
+        isSettingUp = false
     }
 
     var isRecording: Bool { state == .recording }
+    var isPaused: Bool { state == .paused }
+    var isActive: Bool { state.isActive }
+    /// The floating control panel and camera circle are on screen exactly when this is true.
+    var overlaysVisible: Bool { state.isActive || popoverOpen }
 
     func refreshSources() async {
         await catalog.refresh()
@@ -75,6 +129,20 @@ final class RecordingCoordinator: ObservableObject {
 
     func toggleRecording() {
         if state.isBusy { stop() } else { start() }
+    }
+
+    // MARK: - Popover presence
+
+    func popoverAppeared() {
+        popoverOpen = true
+        syncCameraSession()
+        OverlayController.shared.update()
+    }
+
+    func popoverDisappeared() {
+        popoverOpen = false
+        syncCameraSession()
+        OverlayController.shared.update()
     }
 
     // MARK: - Start
@@ -110,10 +178,12 @@ final class RecordingCoordinator: ObservableObject {
                 notice = "Microphone access was denied — recording without audio."
             }
 
-            if selectedCameraID != nil, await !ensureCameraAccess() {
-                selectedCameraID = nil
-                notice = "Camera access was denied — recording the screen only."
-            }
+            // The overlays must be on screen *before* the content filter is built, or
+            // ScreenCaptureKit will not know to exclude them and they get burned into the
+            // movie. Bringing them up here also settles the camera session.
+            OverlayController.shared.update()
+            syncCameraSession()
+            await cameraTask?.value
 
             let filter = try await catalog.makeFilter(for: sourceID)
             guard !cancelRequested else { throw CoordinatorError.cancelled }
@@ -123,7 +193,9 @@ final class RecordingCoordinator: ObservableObject {
             let writer = try MovieWriter(
                 url: url, width: capturer.width, height: capturer.height,
                 includeAudio: microphoneID != nil)
-            guard let compositor = BubbleCompositor() else { throw CoordinatorError.noGPU }
+            if compositor == nil { compositor = BubbleCompositor() }
+            guard let compositor else { throw CoordinatorError.noGPU }
+            compositor.bubblePosition = bubblePosition
 
             // These closures run on the capture queue. They deliberately capture only
             // Sendable-by-confinement objects, never the coordinator's UI state.
@@ -141,20 +213,6 @@ final class RecordingCoordinator: ObservableObject {
             }
             writer.onFailure = { [weak self] error in
                 Task { @MainActor in self?.handleWriterFailure(error) }
-            }
-
-            if let cameraID = selectedCameraID {
-                do {
-                    let camera = try CameraCapturer(deviceID: cameraID, frames: cameraFrames)
-                    camera.onDisconnect = { [weak self] in
-                        Task { @MainActor in self?.notice = "Camera disconnected — the bubble is gone, recording continues." }
-                    }
-                    camera.start()
-                    self.camera = camera
-                } catch {
-                    // A missing camera must never block a screen recording.
-                    notice = "Camera unavailable — recording the screen only."
-                }
             }
 
             guard !cancelRequested else { throw CoordinatorError.cancelled }
@@ -176,22 +234,79 @@ final class RecordingCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Stop
+    // MARK: - Pause / resume
+
+    func pause() {
+        guard state == .recording, let writer else { return }
+        writer.pause()
+        // Freeze the clock too — a paused recording that keeps counting is a lie.
+        accumulatedElapsed = elapsed
+        timer?.invalidate()
+        timer = nil
+        startedAt = nil
+        state = .paused
+    }
+
+    func resume() {
+        guard state == .paused, let writer else { return }
+        writer.resume()
+        state = .recording
+        startedAt = Date()
+        scheduleTimer()
+    }
+
+    func togglePause() {
+        if state == .paused { resume() } else { pause() }
+    }
+
+    // MARK: - Stop / restart / delete
 
     func stop() {
-        guard state == .preparing || state == .recording else { return }
+        guard state == .preparing || state == .recording || state == .paused else { return }
         cancelRequested = true
         Task { [weak self] in
             guard let self else { return }
             await self.startTask?.value
-            guard self.state == .recording else { return }
+            guard self.state == .recording || self.state == .paused else { return }
             await self.finishRecording(reveal: true)
         }
     }
 
+    /// Throws the current take away and starts a fresh one with the same settings.
+    func restart() {
+        guard state.isActive else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.discardCurrent()
+            self.start()
+        }
+    }
+
+    /// Throws the current take away and returns to idle. Leaves no file behind.
+    func discard() {
+        guard state.isActive else { return }
+        Task { [weak self] in await self?.discardCurrent() }
+    }
+
+    private func discardCurrent() async {
+        guard !isStopping else { return }
+        isStopping = true
+        state = .finalizing
+        stopTimer()
+        stopDiskPoll()
+
+        await capturer?.stop()
+        capturer = nil
+        // Awaited so the partial file is gone before a restart reuses the same name.
+        await writer?.cancel()
+        writer = nil
+        isStopping = false
+        state = .idle
+    }
+
     /// Stops and finalizes without waiting on a start in flight. Used at app termination.
     func finalizeForTermination() async {
-        guard state == .recording || state == .preparing else { return }
+        guard state.isActive || state == .preparing else { return }
         cancelRequested = true
         await startTask?.value
         await finishRecording(reveal: false)
@@ -213,7 +328,6 @@ final class RecordingCoordinator: ObservableObject {
             return
         }
         self.writer = nil
-        stopCamera()
 
         let result = await writer.finish()
         isStopping = false
@@ -229,9 +343,8 @@ final class RecordingCoordinator: ObservableObject {
     private func abort(with error: Error) async {
         await capturer?.stop()
         capturer = nil
-        writer?.cancel()
+        await writer?.cancel()
         writer = nil
-        stopCamera()
         stopTimer()
         stopDiskPoll()
         isStopping = false
@@ -247,13 +360,13 @@ final class RecordingCoordinator: ObservableObject {
     /// Display unplugged, window closed, or the user revoked access mid-recording. Keep the
     /// footage: finalize rather than discard.
     private func handleStreamStopped(_ error: Error) {
-        guard state == .recording else { return }
+        guard state.isActive else { return }
         notice = "Capture stopped: \((error as NSError).localizedDescription) Saving what was recorded."
         Task { await finishRecording(reveal: true) }
     }
 
     private func handleWriterFailure(_ error: Error) {
-        guard state == .recording || state == .preparing else { return }
+        guard state.isActive || state == .preparing else { return }
         Task { await abort(with: error) }
     }
 
@@ -292,12 +405,55 @@ final class RecordingCoordinator: ObservableObject {
 
     // MARK: - Camera
 
-    let cameraFrames = LatestCamFrame()
+    /// Starts or stops the single shared `AVCaptureSession` so it is running exactly when
+    /// something needs it: the floating circle, the popover preview, or the recording.
+    /// There is never more than one session on a device.
+    private func syncCameraSession() {
+        let desired: String? = (overlaysVisible || state.isBusy) ? selectedCameraID : nil
+        guard desired != runningCameraID else { return }
 
-    private func stopCamera() {
+        cameraTask?.cancel()
         camera?.stop()
         camera = nil
         cameraFrames.clear()
+        cameraActive = false
+        runningCameraID = desired
+
+        guard let desired else { return }
+        cameraTask = Task { [weak self] in
+            guard let self else { return }
+            guard await self.ensureCameraAccess() else {
+                guard self.runningCameraID == desired else { return }
+                self.runningCameraID = nil
+                self.selectedCameraID = nil
+                self.notice = "Camera access was denied — recording the screen only."
+                return
+            }
+            guard !Task.isCancelled, self.runningCameraID == desired else { return }
+            do {
+                let capturer = try CameraCapturer(deviceID: desired, frames: self.cameraFrames)
+                capturer.onDisconnect = { [weak self] in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.cameraActive = false
+                        self.runningCameraID = nil
+                        self.notice =
+                            "Camera disconnected — the bubble is gone, recording continues."
+                        OverlayController.shared.update()
+                    }
+                }
+                capturer.start()
+                self.camera = capturer
+                self.cameraActive = true
+                OverlayController.shared.update()
+            } catch {
+                self.runningCameraID = nil
+                self.cameraActive = false
+                // A missing camera must never block a screen recording.
+                self.notice = "Camera unavailable — recording the screen only."
+                OverlayController.shared.update()
+            }
+        }
     }
 
     private func ensureCameraAccess() async -> Bool {
@@ -319,12 +475,18 @@ final class RecordingCoordinator: ObservableObject {
     // MARK: - Elapsed timer
 
     private func startTimer() {
-        startedAt = Date()
+        accumulatedElapsed = 0
         elapsed = 0
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+        startedAt = Date()
+        scheduleTimer()
+    }
+
+    private func scheduleTimer() {
+        timer?.invalidate()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let startedAt = self.startedAt else { return }
-                self.elapsed = Date().timeIntervalSince(startedAt)
+                self.elapsed = self.accumulatedElapsed + Date().timeIntervalSince(startedAt)
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -335,6 +497,7 @@ final class RecordingCoordinator: ObservableObject {
         timer?.invalidate()
         timer = nil
         startedAt = nil
+        accumulatedElapsed = 0
         elapsed = 0
     }
 

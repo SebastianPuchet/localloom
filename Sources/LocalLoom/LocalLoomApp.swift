@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKey?.unregister()
+        OverlayController.shared.hideAll()
     }
 
     /// `swift run` and `kill` bypass AppKit's terminate path entirely.

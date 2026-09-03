@@ -22,6 +22,15 @@ final class MovieWriter: @unchecked Sendable {
     private var lastPixelBuffer: CVPixelBuffer?
     private var watchdog: DispatchSourceTimer?
 
+    /// `AVAssetWriter` has no pause API, so we fake one: while paused nothing is appended
+    /// and the watchdog is suspended, and every later sample — video *and* audio — has the
+    /// accumulated paused duration subtracted from its presentation timestamp. That keeps
+    /// the movie continuous instead of leaving a frozen gap, and keeps the two tracks in
+    /// sync because they share the offset.
+    private var paused = false
+    private var pauseOffset: CMTime = .zero
+    private var pauseStartedAt: CMTime = .zero
+
     private(set) var droppedFrames = 0
 
     /// Called on the writer queue when the writer enters `.failed`.
@@ -78,33 +87,83 @@ final class MovieWriter: @unchecked Sendable {
     /// Appends a composited frame. `pixelBuffer` must be owned by us, never an SCK buffer.
     func append(_ pixelBuffer: CVPixelBuffer, at presentationTime: CMTime) {
         queue.async { [weak self] in
-            guard let self, !self.finished else { return }
+            guard let self, !self.finished, !self.paused else { return }
+            let stamp = CMTimeSubtract(presentationTime, self.pauseOffset)
             if !self.sessionStarted {
-                self.writer.startSession(atSourceTime: presentationTime)
-                self.writerSessionStart = presentationTime
+                self.writer.startSession(atSourceTime: stamp)
+                self.writerSessionStart = stamp
                 self.sessionStarted = true
                 self.startWatchdog()
             }
             // Never move backwards: a re-emitted watchdog frame may have overtaken a
             // real frame that was still in flight.
-            guard presentationTime > self.lastPresentationTime || self.lastPixelBuffer == nil else {
+            guard stamp > self.lastPresentationTime || self.lastPixelBuffer == nil else {
                 return
             }
-            self.write(pixelBuffer, at: presentationTime)
+            self.write(pixelBuffer, at: stamp)
         }
     }
 
     /// Mic PCM. It rides the same clock as the screen frames, so no re-timing is needed.
     func appendAudio(_ sampleBuffer: CMSampleBuffer) {
         queue.async { [weak self] in
-            guard let self, let audioInput = self.audioInput, !self.finished else { return }
+            guard let self, let audioInput = self.audioInput, !self.finished, !self.paused
+            else { return }
             // Anything before the video anchor has nowhere to go.
             guard self.sessionStarted else { return }
-            guard CMSampleBufferGetPresentationTimeStamp(sampleBuffer) >= self.writerSessionStart
-            else { return }
+            let stamp = CMTimeSubtract(
+                CMSampleBufferGetPresentationTimeStamp(sampleBuffer), self.pauseOffset)
+            guard stamp >= self.writerSessionStart else { return }
             guard audioInput.isReadyForMoreMediaData else { return }
-            audioInput.append(sampleBuffer)
+            guard let retimed = self.retimed(sampleBuffer, to: stamp) else { return }
+            audioInput.append(retimed)
             self.checkFailure()
+        }
+    }
+
+    /// Shifts an audio sample buffer by the pause offset. Caller must be on `queue`.
+    private func retimed(_ sampleBuffer: CMSampleBuffer, to stamp: CMTime) -> CMSampleBuffer? {
+        guard pauseOffset != .zero else { return sampleBuffer }
+        var timing = CMSampleTimingInfo(
+            duration: CMSampleBufferGetDuration(sampleBuffer),
+            presentationTimeStamp: stamp,
+            decodeTimeStamp: .invalid)
+        var copy: CMSampleBuffer?
+        guard CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault, sampleBuffer: sampleBuffer,
+            sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+            sampleBufferOut: &copy) == noErr
+        else { return nil }
+        return copy
+    }
+
+    // MARK: - Pause
+
+    var isPaused: Bool {
+        queue.sync { paused }
+    }
+
+    /// Stops appending and freezes the movie's timeline. Suspends the watchdog too — left
+    /// running it would happily fill the whole pause with duplicated frames.
+    func pause() {
+        queue.async { [self] in
+            guard !finished, !paused else { return }
+            paused = true
+            pauseStartedAt = CMClockGetTime(CMClockGetHostTimeClock())
+            stopWatchdog()
+        }
+    }
+
+    func resume() {
+        queue.async { [self] in
+            guard !finished, paused else { return }
+            let now = CMClockGetTime(CMClockGetHostTimeClock())
+            pauseOffset = CMTimeAdd(pauseOffset, CMTimeSubtract(now, pauseStartedAt))
+            paused = false
+            // The watchdog measures the gap from `lastHostTime`; without this reset it
+            // would immediately extend the movie by the whole paused duration.
+            lastHostTime = now
+            if sessionStarted { startWatchdog() }
         }
     }
 
@@ -144,7 +203,8 @@ final class MovieWriter: @unchecked Sendable {
             repeating: RecordingSettings.stallInterval / 2,
             leeway: .milliseconds(20))
         timer.setEventHandler { [weak self] in
-            guard let self, !self.finished, let buffer = self.lastPixelBuffer else { return }
+            guard let self, !self.finished, !self.paused, let buffer = self.lastPixelBuffer
+            else { return }
             let now = CMClockGetTime(CMClockGetHostTimeClock())
             let sinceLastFrame = CMTimeGetSeconds(CMTimeSubtract(now, self.lastHostTime))
             guard sinceLastFrame >= RecordingSettings.stallInterval else { return }
@@ -174,6 +234,7 @@ final class MovieWriter: @unchecked Sendable {
                     return
                 }
                 finished = true
+                paused = false
                 guard sessionStarted, writer.status == .writing else {
                     writer.cancelWriting()
                     try? FileManager.default.removeItem(at: url)
@@ -183,7 +244,9 @@ final class MovieWriter: @unchecked Sendable {
                 // Timer coalescing can leave the last watchdog tick up to one interval in
                 // the past, which would clip the tail. Land one final frame on "now".
                 if let buffer = lastPixelBuffer {
-                    let now = CMClockGetTime(CMClockGetHostTimeClock())
+                    // Stopping while paused must not resurrect the paused span.
+                    let now = paused
+                        ? pauseStartedAt : CMClockGetTime(CMClockGetHostTimeClock())
                     let advance = CMTimeSubtract(now, lastHostTime)
                     if advance > .zero {
                         write(buffer, at: CMTimeAdd(lastPresentationTime, advance))
@@ -206,13 +269,20 @@ final class MovieWriter: @unchecked Sendable {
     }
 
     /// Abandons the movie and deletes the partial file. Never leave a zero-byte MP4 behind.
-    func cancel() {
-        queue.async { [self] in
-            stopWatchdog()
-            finished = true
-            lastPixelBuffer = nil
-            if writer.status == .writing { writer.cancelWriting() }
-            try? FileManager.default.removeItem(at: url)
+    ///
+    /// Async on purpose: "restart" reuses the same second-resolution filename, so the
+    /// delete has to have completed before the next recording creates its file.
+    func cancel() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                stopWatchdog()
+                finished = true
+                paused = false
+                lastPixelBuffer = nil
+                if writer.status == .writing { writer.cancelWriting() }
+                try? FileManager.default.removeItem(at: url)
+                continuation.resume()
+            }
         }
     }
 
