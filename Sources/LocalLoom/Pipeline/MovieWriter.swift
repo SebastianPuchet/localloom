@@ -141,7 +141,8 @@ final class MovieWriter: @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(
             deadline: .now() + RecordingSettings.stallInterval,
-            repeating: RecordingSettings.stallInterval / 2)
+            repeating: RecordingSettings.stallInterval / 2,
+            leeway: .milliseconds(20))
         timer.setEventHandler { [weak self] in
             guard let self, !self.finished, let buffer = self.lastPixelBuffer else { return }
             let now = CMClockGetTime(CMClockGetHostTimeClock())
@@ -178,6 +179,15 @@ final class MovieWriter: @unchecked Sendable {
                     try? FileManager.default.removeItem(at: url)
                     continuation.resume(returning: .failure(WriterError.noFrames))
                     return
+                }
+                // Timer coalescing can leave the last watchdog tick up to one interval in
+                // the past, which would clip the tail. Land one final frame on "now".
+                if let buffer = lastPixelBuffer {
+                    let now = CMClockGetTime(CMClockGetHostTimeClock())
+                    let advance = CMTimeSubtract(now, lastHostTime)
+                    if advance > .zero {
+                        write(buffer, at: CMTimeAdd(lastPresentationTime, advance))
+                    }
                 }
                 writer.endSession(atSourceTime: lastPresentationTime)
                 videoInput.markAsFinished()

@@ -16,12 +16,11 @@ final class BubbleCompositor {
     private var poolHeight = 0
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
-    /// Cached because the bubble geometry never changes at runtime.
-    private lazy var bubbleMask: CIImage = Self.circleImage(
-        diameter: RecordingSettings.bubbleDiameter, color: CIColor.white)
-    private lazy var ringImage: CIImage = Self.circleImage(
-        diameter: RecordingSettings.bubbleDiameter + RecordingSettings.bubbleRingWidth * 2,
-        color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.9))
+    /// Cached: the bubble geometry only changes if the frame size does, which it never
+    /// does within one recording.
+    private var bubbleDiameter: CGFloat = 0
+    private var bubbleMask = CIImage.empty()
+    private var ringImage = CIImage.empty()
 
     init?() {
         guard let device = MTLCreateSystemDefaultDevice() else { return nil }
@@ -35,8 +34,9 @@ final class BubbleCompositor {
         guard let output = vendBuffer(width: width, height: height) else { return nil }
 
         var image = CIImage(cvPixelBuffer: screen)
-        if let camera, let bubble = makeBubble(camera: camera) {
-            image = bubble.composited(over: image)
+        if let camera {
+            prepareBubbleGeometry(width: width, height: height)
+            if let bubble = makeBubble(camera: camera) { image = bubble.composited(over: image) }
         }
         context.render(
             image, to: output,
@@ -45,8 +45,18 @@ final class BubbleCompositor {
         return output
     }
 
+    private func prepareBubbleGeometry(width: Int, height: Int) {
+        let diameter = RecordingSettings.bubbleDiameter(width: width, height: height)
+        guard diameter != bubbleDiameter else { return }
+        bubbleDiameter = diameter
+        bubbleMask = Self.circleImage(diameter: diameter, color: CIColor.white)
+        ringImage = Self.circleImage(
+            diameter: diameter + RecordingSettings.bubbleRingWidth * 2,
+            color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.9))
+    }
+
     private func makeBubble(camera: CVPixelBuffer) -> CIImage? {
-        let diameter = RecordingSettings.bubbleDiameter
+        let diameter = bubbleDiameter
         let camImage = CIImage(cvPixelBuffer: camera)
         let extent = camImage.extent
         guard extent.width > 0, extent.height > 0 else { return nil }
@@ -74,7 +84,7 @@ final class BubbleCompositor {
         ])?.outputImage else { return nil }
 
         let ringOffset = RecordingSettings.bubbleRingWidth
-        let inset = RecordingSettings.bubbleInset
+        let inset = RecordingSettings.bubbleInset(diameter: diameter)
         let ring = ringImage.transformed(
             by: CGAffineTransform(translationX: inset - ringOffset, y: inset - ringOffset))
         return masked

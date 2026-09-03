@@ -9,11 +9,15 @@ enum RecordingSettings {
     /// SCStream buffer pool depth. 6-8 keeps SCK from starving while we composite.
     static let queueDepth: Int = 6
 
-    /// Diameter of the webcam bubble, in output pixels.
-    static let bubbleDiameter: CGFloat = 320
+    /// Diameter of the webcam bubble, in output pixels. Capped so a full-screen recording
+    /// gets a reasonable bubble, and proportional so recording a small window does not get
+    /// a bubble that swallows it.
+    static func bubbleDiameter(width: Int, height: Int) -> CGFloat {
+        min(320, CGFloat(min(width, height)) * 0.22)
+    }
 
     /// Inset of the bubble from the bottom-left corner of the frame, in output pixels.
-    static let bubbleInset: CGFloat = 48
+    static func bubbleInset(diameter: CGFloat) -> CGFloat { diameter * 0.15 }
 
     /// Width of the white ring drawn around the bubble, in output pixels.
     static let bubbleRingWidth: CGFloat = 4
