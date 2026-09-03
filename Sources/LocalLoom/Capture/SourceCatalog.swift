@@ -97,29 +97,38 @@ final class SourceCatalog: ObservableObject {
         microphones = micSession.devices.map { CaptureDevice(id: $0.uniqueID, name: $0.localizedName) }
     }
 
-    /// Builds the content filter for a source, refetching shareable content if needed.
+    /// Builds the content filter for a source.
+    ///
+    /// Always refetches shareable content: the floating control panel and camera circle are
+    /// created moments before this runs, and a cached window list would not contain them —
+    /// which is exactly how overlays end up burned into the movie.
     func makeFilter(for id: SourceID) async throws -> SCContentFilter {
-        let content: SCShareableContent
-        if let cached = self.content {
-            content = cached
-        } else {
-            content = try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: true)
-            self.content = content
-        }
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: true)
+        self.content = content
+        let bundleID = Bundle.main.bundleIdentifier
         switch id {
         case .display(let displayID):
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw CatalogError.sourceGone
             }
+            // Excluding the whole application also covers windows that appear *after* the
+            // filter is built, which excluding a fixed window list would not.
+            if let ownApp = content.applications.first(where: {
+                $0.bundleIdentifier == bundleID
+            }) {
+                return SCContentFilter(
+                    display: display, excludingApplications: [ownApp], exceptingWindows: [])
+            }
             let ownWindows = content.windows.filter {
-                $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+                $0.owningApplication?.bundleIdentifier == bundleID
             }
             return SCContentFilter(display: display, excludingWindows: ownWindows)
         case .window(let windowID):
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
                 throw CatalogError.sourceGone
             }
+            // A single-window filter never contains anything else, overlays included.
             return SCContentFilter(desktopIndependentWindow: window)
         }
     }
