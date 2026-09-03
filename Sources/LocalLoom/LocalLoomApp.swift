@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct LocalLoomApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var coordinator = RecordingCoordinator()
+    @StateObject private var coordinator = RecordingCoordinator.shared
 
     var body: some Scene {
         MenuBarExtra {
