@@ -93,7 +93,7 @@ ScreenCaptureKit delivers BGRA screen frames and — on the *same clock* — mic
 Each screen frame is composited with the newest available webcam frame by a Metal-backed
 `CIContext` and appended to a single `AVAssetWriter` (H.264 + AAC, one MP4).
 
-Two details do most of the work:
+Three details do most of the work:
 
 - **Camera frames are never timestamped.** Whatever webcam frame is newest gets drawn onto
   whatever screen frame is being encoded, so audio/video drift between the two capture
