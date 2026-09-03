@@ -1,21 +1,22 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 @main
 struct LocalLoomApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var coordinator = RecordingCoordinator()
 
     var body: some Scene {
         MenuBarExtra {
-            Text("LocalLoom")
-                .padding()
+            PopoverView(coordinator: coordinator)
         } label: {
-            Image(systemName: "video.circle")
+            MenuBarLabel(coordinator: coordinator)
         }
         .menuBarExtraStyle(.window)
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)

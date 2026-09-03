@@ -9,6 +9,10 @@ APP_NAME="LocalLoom"
 APP="dist/$APP_NAME.app"
 IDENTITY="${LOCALLOOM_IDENTITY:-}"
 
+# Set LOCALLOOM_ADHOC=1 for unattended builds. Ad-hoc signing works, but its designated
+# requirement is the binary's cdhash, so macOS resets every TCC grant on each rebuild.
+if [ "${LOCALLOOM_ADHOC:-0}" = "1" ]; then IDENTITY="-"; fi
+
 # Pick a signing identity: env override, then "LocalLoom Dev", then any LocalLoom cert,
 # then ad-hoc (works, but every rebuild resets the Screen Recording grant).
 if [ -z "$IDENTITY" ]; then
@@ -44,9 +48,14 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> codesign with identity: $IDENTITY"
-codesign --force --options runtime \
+# The first signature after importing the identity makes macOS show a keychain dialog
+# ("codesign wants to use a key"). Click "Always Allow" once; later builds are silent.
+if ! codesign --force --options runtime \
   --entitlements Resources/LocalLoom.entitlements \
-  --sign "$IDENTITY" "$APP"
+  --sign "$IDENTITY" "$APP"; then
+  echo "error: codesigning failed. If a keychain dialog appeared, choose \"Always Allow\"." >&2
+  exit 1
+fi
 codesign --verify --strict "$APP"
 codesign -d -r- "$APP" 2>&1 | grep -i designated || true
 
