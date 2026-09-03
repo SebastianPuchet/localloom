@@ -41,6 +41,7 @@ final class RecordingCoordinator: ObservableObject {
     let catalog = SourceCatalog()
 
     private var capturer: ScreenCapturer?
+    private var camera: CameraCapturer?
     private var writer: MovieWriter?
     private var startTask: Task<Void, Never>?
     private var cancelRequested = false
@@ -109,6 +110,11 @@ final class RecordingCoordinator: ObservableObject {
                 notice = "Microphone access was denied — recording without audio."
             }
 
+            if selectedCameraID != nil, await !ensureCameraAccess() {
+                selectedCameraID = nil
+                notice = "Camera access was denied — recording the screen only."
+            }
+
             let filter = try await catalog.makeFilter(for: sourceID)
             guard !cancelRequested else { throw CoordinatorError.cancelled }
 
@@ -135,6 +141,20 @@ final class RecordingCoordinator: ObservableObject {
             }
             writer.onFailure = { [weak self] error in
                 Task { @MainActor in self?.handleWriterFailure(error) }
+            }
+
+            if let cameraID = selectedCameraID {
+                do {
+                    let camera = try CameraCapturer(deviceID: cameraID, frames: cameraFrames)
+                    camera.onDisconnect = { [weak self] in
+                        Task { @MainActor in self?.notice = "Camera disconnected — the bubble is gone, recording continues." }
+                    }
+                    camera.start()
+                    self.camera = camera
+                } catch {
+                    // A missing camera must never block a screen recording.
+                    notice = "Camera unavailable — recording the screen only."
+                }
             }
 
             guard !cancelRequested else { throw CoordinatorError.cancelled }
@@ -270,11 +290,23 @@ final class RecordingCoordinator: ObservableObject {
         diskTimer = nil
     }
 
-    // MARK: - Camera (wired in CameraCapturer)
+    // MARK: - Camera
 
     let cameraFrames = LatestCamFrame()
 
-    private func stopCamera() {}
+    private func stopCamera() {
+        camera?.stop()
+        camera = nil
+        cameraFrames.clear()
+    }
+
+    private func ensureCameraAccess() async -> Bool {
+        switch Permissions.cameraStatus() {
+        case .authorized: return true
+        case .notDetermined: return await Permissions.requestCameraAccess()
+        default: return false
+        }
+    }
 
     private func ensureMicrophoneAccess() async -> Bool {
         switch Permissions.microphoneStatus() {
