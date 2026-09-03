@@ -34,6 +34,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey = monitor
 
         installSignalHandlers()
+
+        // Belt and braces for the overlays: SwiftUI's onDisappear on the menu bar popover
+        // is the primary signal, but if AppKit closes that window without SwiftUI telling
+        // us, the overlays would linger. Any window of ours that is not a floating panel
+        // is the popover.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main
+        ) { notification in
+            guard let window = notification.object as? NSWindow, !(window is FloatingPanel)
+            else { return }
+            MainActor.assumeIsolated { RecordingCoordinator.shared.popoverDisappeared() }
+        }
     }
 
     /// A recording in progress must be finalized before the process dies, or the MP4 is

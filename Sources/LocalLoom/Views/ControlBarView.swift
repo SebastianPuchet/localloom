@@ -70,32 +70,39 @@ struct ControlBarView: View {
             Text(loomTimeString(coordinator.elapsed))
                 .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(.primary)
+                .foregroundStyle(coordinator.isActive ? .primary : .secondary)
                 .accessibilityLabel("Elapsed \(loomTimeString(coordinator.elapsed))")
 
             Divider().frame(height: 18).padding(.horizontal, 4)
 
+            // Doubles as the start button, so the bar is useful before recording too.
             IconButton(
-                systemImage: "stop.fill", label: "Stop and save",
-                tint: LoomTheme.recording, prominent: true
-            ) { coordinator.stop() }
+                systemImage: coordinator.isActive ? "stop.fill" : "record.circle.fill",
+                label: coordinator.isActive ? "Stop and save" : "Start recording",
+                tint: coordinator.isActive ? LoomTheme.recording : LoomTheme.accent,
+                prominent: true
+            ) { coordinator.toggleRecording() }
+            .disabled(coordinator.selectedSourceID == nil || coordinator.state == .preparing
+                      || coordinator.state == .finalizing)
 
-            IconButton(
-                systemImage: coordinator.isPaused ? "play.fill" : "pause.fill",
-                label: coordinator.isPaused ? "Resume recording" : "Pause recording"
-            ) { coordinator.togglePause() }
+            Group {
+                IconButton(
+                    systemImage: coordinator.isPaused ? "play.fill" : "pause.fill",
+                    label: coordinator.isPaused ? "Resume recording" : "Pause recording"
+                ) { coordinator.togglePause() }
 
-            IconButton(systemImage: "arrow.counterclockwise", label: "Restart recording") {
-                pending = .restart
+                IconButton(systemImage: "arrow.counterclockwise", label: "Restart recording") {
+                    pending = .restart
+                }
+
+                IconButton(systemImage: "trash", label: "Delete recording") {
+                    pending = .discard
+                }
             }
-
-            IconButton(systemImage: "trash", label: "Delete recording") {
-                pending = .discard
-            }
+            .disabled(!coordinator.isActive)
+            .opacity(coordinator.isActive ? 1 : 0.32)
         }
         .padding(.horizontal, 12)
-        .disabled(!coordinator.isActive)
-        .opacity(coordinator.isActive ? 1 : 0.45)
     }
 
     private func confirmStrip(_ action: Pending) -> some View {
@@ -125,10 +132,20 @@ struct ControlBarView: View {
 
     private var statusDot: some View {
         Circle()
-            .fill(coordinator.isPaused ? LoomTheme.paused : LoomTheme.recording)
+            .fill(dotColor)
             .frame(width: 8, height: 8)
             .padding(.trailing, 4)
-            .accessibilityLabel(coordinator.isPaused ? "Paused" : "Recording")
+            .accessibilityLabel(statusLabel)
+    }
+
+    private var dotColor: Color {
+        if !coordinator.isActive { return Color.secondary.opacity(0.5) }
+        return coordinator.isPaused ? LoomTheme.paused : LoomTheme.recording
+    }
+
+    private var statusLabel: String {
+        if !coordinator.isActive { return "Ready to record" }
+        return coordinator.isPaused ? "Paused" : "Recording"
     }
 }
 
