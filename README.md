@@ -42,15 +42,31 @@ exempt an app from that; only a paid Developer ID with a special entitlement doe
 
 | | |
 |---|---|
-| Start | Menu bar icon → pick source/camera/mic → **Record** |
-| Stop | **⌘⇧8** from anywhere, or the menu bar icon → **Stop Recording** |
+| Start | Menu bar icon → pick screen/camera/mic → **Start Recording** |
+| Stop | **⌘⇧8** from anywhere, the floating bar's stop button, or **Stop & Save** |
 | Output | `~/Movies/LocalLoom/LocalLoom <date>.mp4`, revealed in Finder when it finishes |
 
 The icon turns into a red dot while recording. Your last-used source, camera and microphone
 are remembered.
 
-Recording with no camera is a first-class mode — pick **None** and you get a plain screen
-recording.
+### The floating controls
+
+Opening the menu bar popover — and recording — puts two small draggable windows on screen:
+
+- **A control bar** with start/stop, pause/resume, restart and delete, plus the elapsed
+  timer. Restart and delete throw footage away, so each one asks for a second click before
+  it does anything, and forgets it was asked after a few seconds.
+- **A camera circle** showing the live webcam, when a camera is selected. **Where you drag
+  the circle is where the bubble lands in the MP4** — the position is normalized against
+  the recorded display and read by the compositor for every frame. It is remembered between
+  recordings.
+
+Neither window is recorded. Both are excluded from capture twice over: `sharingType = .none`
+on the panel itself, and an app-excluding `SCContentFilter` built after the overlays are on
+screen.
+
+Recording with no camera is a first-class mode — set Camera to **Off**, and no circle
+appears at all.
 
 ## Build from source
 
@@ -85,6 +101,11 @@ Two details do most of the work:
 - **A stall watchdog.** ScreenCaptureKit stops emitting frames when the screen does not
   change. Without re-appending the last frame after half a second, long recordings of a
   static screen silently lose their tail.
+- **Pause is faked, carefully.** `AVAssetWriter` has no pause API. LocalLoom stops
+  appending, suspends the watchdog (which would otherwise pack the pause with duplicated
+  frames), and subtracts the accumulated paused time from every later presentation
+  timestamp — video and audio alike, so the two stay in sync. A ten-second wall-clock take
+  with a four-second pause writes a six-second movie with no frozen gap.
 
 ## Limitations
 
