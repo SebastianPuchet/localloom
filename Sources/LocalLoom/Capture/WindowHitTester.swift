@@ -76,6 +76,12 @@ struct PickableWindow: Equatable {
         return title
     }
 
+    /// The app name, unless it is already what `displayName` shows — repeating "Finder"
+    /// under "Finder" reads as a rendering mistake.
+    var subtitleName: String? {
+        displayName == appName ? nil : appName
+    }
+
     var icon: NSImage? {
         NSRunningApplication(processIdentifier: ownerPID)?.icon
     }

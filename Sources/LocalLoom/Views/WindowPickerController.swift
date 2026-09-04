@@ -295,8 +295,7 @@ final class WindowPickerController {
         for overlay in overlays {
             overlay.view.highlight = appKitFrame
             overlay.view.title = hit?.displayName
-            overlay.view.subtitle = hit.map { $0.displayName == $0.appName ? "" : $0.appName }
-                .flatMap { $0.isEmpty ? nil : $0 }
+            overlay.view.subtitle = hit?.subtitleName
             overlay.view.icon = icon
             overlay.view.showsHint = overlay.screenFrame.contains(mouse)
         }
