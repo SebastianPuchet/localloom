@@ -1,10 +1,14 @@
+import AppKit
 import SwiftUI
 
 /// Shared visual language for the popover and the floating overlays, so the three surfaces
 /// read as one app. Every colour here is defined for both appearances.
 enum LoomTheme {
     /// The one saturated colour in the app. Used for the primary action only.
-    static let accent = Color(red: 0.36, green: 0.33, blue: 0.95)
+    static let accent = Color(nsColor: accentColor)
+    /// The same colour for the AppKit surfaces — the window picker draws with Core
+    /// Graphics, not SwiftUI, so it needs an `NSColor` of exactly this hue.
+    static let accentColor = NSColor(srgbRed: 0.36, green: 0.33, blue: 0.95, alpha: 1)
     static let recording = Color(red: 0.95, green: 0.26, blue: 0.30)
     static let paused = Color(red: 0.98, green: 0.68, blue: 0.18)
 
