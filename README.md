@@ -50,7 +50,8 @@ LocalLoom lives in the menu bar. There is no Dock icon and no window.
 **From source** — a clone is never quarantined, so this needs no extra step at all:
 
 ```sh
-scripts/build.sh && cp -R dist/LocalLoom.app /Applications/
+scripts/build.sh && rm -rf /Applications/LocalLoom.app \
+  && ditto dist/LocalLoom.app /Applications/LocalLoom.app
 ```
 
 ## Permissions
