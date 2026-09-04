@@ -148,7 +148,10 @@ final class RecordingCoordinator: ObservableObject {
     var isPaused: Bool { state == .paused }
     var isActive: Bool { state.isActive }
     /// The floating control panel and camera circle are on screen exactly when this is true.
-    var overlaysVisible: Bool { state.isActive || popoverOpen }
+    /// `isBusy` is in here as well as `isActive` so the overlays do not blink out during
+    /// `.preparing` — starting a recording closes the popover, and without this the bar and
+    /// circle would vanish for the moment between the click and the first frame.
+    var overlaysVisible: Bool { state.isActive || state.isBusy || popoverOpen }
 
     /// True when the chosen source is a single window rather than a whole display.
     var isWindowSource: Bool {
@@ -249,10 +252,25 @@ final class RecordingCoordinator: ObservableObject {
         OverlayController.shared.update()
     }
 
+    /// Closes the menu bar popover if it is open.
+    ///
+    /// `close()` posts `willCloseNotification`, which the `AppDelegate` backstop turns into
+    /// `popoverDisappeared()`, so popover state stays consistent and the next click on the
+    /// menu bar icon opens a fresh panel. Resigning key first lets AppKit dismiss it the
+    /// same way clicking away does.
+    private func dismissPopover() {
+        guard let window = popoverWindow else { return }
+        window.resignKey()
+        window.close()
+    }
+
     // MARK: - Start
 
     func start() {
         guard !state.isBusy else { return }
+        // The popover would otherwise sit in the shot for a full-screen recording, and the
+        // floating control bar takes over from here anyway.
+        dismissPopover()
         state = .preparing
         notice = nil
         cameraNotice = nil
