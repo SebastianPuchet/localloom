@@ -129,6 +129,27 @@ struct PopoverView: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             }
+
+            // One row for two settings, and a grey tile rather than a coloured one: this
+            // is a knob you set once, not part of the "what am I recording" decision the
+            // rows above it are asking.
+            SelectorRow(
+                icon: "slider.horizontal.3", tint: Color.gray, title: "Quality",
+                value: qualityName
+            ) {
+                Picker("Resolution", selection: $coordinator.selectedResolution) {
+                    ForEach(VideoResolution.allCases) { resolution in
+                        Text("\(resolution.title) — \(resolution.detail)").tag(resolution)
+                    }
+                }
+                .pickerStyle(.inline)
+                Picker("Format", selection: $coordinator.selectedFormat) {
+                    ForEach(VideoFormat.allCases) { format in
+                        Text("\(format.title) — \(format.detail)").tag(format)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
         }
     }
 
@@ -188,6 +209,10 @@ struct PopoverView: View {
               let device = catalog.cameras.first(where: { $0.id == id })
         else { return catalog.cameras.isEmpty ? "No camera connected" : "Off" }
         return device.name
+    }
+
+    private var qualityName: String {
+        "\(coordinator.selectedResolution.title) · \(coordinator.selectedFormat.title)"
     }
 
     private var microphoneName: String {
