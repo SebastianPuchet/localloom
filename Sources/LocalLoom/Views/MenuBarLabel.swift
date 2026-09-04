@@ -1,43 +1,56 @@
+import AppKit
 import SwiftUI
 
-/// The LocalLoom mark, drawn as a monochrome glyph: a screen outline with the webcam
-/// bubble notched into its lower-left corner. Drawn rather than loaded from AppIcon.icns
-/// because a colour raster cannot tint for light/dark or for the recording state, and the
-/// full-colour mark is illegible at menu bar size.
-private struct MarkShape: View {
-    /// Stroke weight, in points, at the nominal 18x14 glyph size.
-    private let line: CGFloat = 1.5
+/// The LocalLoom mark for the menu bar: a screen outline with the webcam bubble notched
+/// into its lower-left corner, matching AppIcon.
+///
+/// Drawn into an NSImage with Core Graphics rather than composed as a SwiftUI view.
+/// A `MenuBarExtra` label renders through an NSStatusItem button, where blend modes and
+/// GeometryReader collapse to nothing — an earlier SwiftUI version produced an invisible
+/// icon. The full-colour AppIcon is unusable here for a different reason: it is an
+/// illegible blob below about 64px and cannot tint for light/dark or the recording state.
+private enum Mark {
+    static let idle: NSImage = draw(color: .black, template: true)
+    static let recording: NSImage = draw(color: .systemRed, template: false)
+    static let paused: NSImage = draw(color: .systemOrange, template: false)
 
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let bubble = h * 0.62
-            // The screen is inset from the left/bottom to leave room for the bubble.
-            let screen = CGRect(x: w * 0.22, y: 0, width: w * 0.78, height: h * 0.78)
-            let centre = CGPoint(x: bubble / 2, y: h - bubble / 2)
+    private static func draw(color: NSColor, template: Bool) -> NSImage {
+        let size = NSSize(width: 18, height: 14)
+        let image = NSImage(size: size, flipped: false) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let w = rect.width, h = rect.height
+            let line: CGFloat = 1.5
+            let bubble = h * 0.60
 
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: h * 0.16, style: .continuous)
-                    .stroke(lineWidth: line)
-                    .frame(width: screen.width, height: screen.height)
-                    .offset(x: screen.minX, y: screen.minY)
+            ctx.setLineWidth(line)
+            ctx.setStrokeColor(color.cgColor)
 
-                // Punch a gap so the bubble reads as sitting in front of the screen.
-                Circle()
-                    .frame(width: bubble + line * 2.5, height: bubble + line * 2.5)
-                    .offset(x: centre.x - (bubble + line * 2.5) / 2,
-                            y: centre.y - (bubble + line * 2.5) / 2)
-                    .blendMode(.destinationOut)
+            // Screen: occupies the upper-right, inset to leave room for the bubble.
+            let screen = CGRect(x: w * 0.24 + line / 2,
+                                y: h * 0.24 + line / 2,
+                                width: w * 0.76 - line,
+                                height: h * 0.76 - line)
+            ctx.addPath(CGPath(roundedRect: screen,
+                               cornerWidth: h * 0.16, cornerHeight: h * 0.16,
+                               transform: nil))
+            ctx.strokePath()
 
-                Circle()
-                    .stroke(lineWidth: line)
-                    .frame(width: bubble, height: bubble)
-                    .offset(x: centre.x - bubble / 2, y: centre.y - bubble / 2)
-            }
-            .compositingGroup()
+            // Clear a gap so the bubble reads as sitting in front of the screen.
+            let centre = CGPoint(x: bubble / 2, y: bubble / 2)
+            let gap = bubble + line * 2.5
+            ctx.setBlendMode(.clear)
+            ctx.fillEllipse(in: CGRect(x: centre.x - gap / 2, y: centre.y - gap / 2,
+                                       width: gap, height: gap))
+            ctx.setBlendMode(.normal)
+
+            ctx.setStrokeColor(color.cgColor)
+            ctx.strokeEllipse(in: CGRect(x: centre.x - bubble / 2 + line / 2,
+                                         y: centre.y - bubble / 2 + line / 2,
+                                         width: bubble - line, height: bubble - line))
+            return true
         }
-        .frame(width: 18, height: 14)
+        image.isTemplate = template
+        return image
     }
 }
 
@@ -47,16 +60,11 @@ struct MenuBarLabel: View {
     var body: some View {
         switch coordinator.state {
         case .recording:
-            MarkShape()
-                .foregroundStyle(.red)
-                .accessibilityLabel("LocalLoom — recording")
+            Image(nsImage: Mark.recording).accessibilityLabel("LocalLoom — recording")
         case .paused:
-            MarkShape()
-                .foregroundStyle(.orange)
-                .accessibilityLabel("LocalLoom — paused")
+            Image(nsImage: Mark.paused).accessibilityLabel("LocalLoom — paused")
         default:
-            MarkShape()
-                .accessibilityLabel("LocalLoom")
+            Image(nsImage: Mark.idle).accessibilityLabel("LocalLoom")
         }
     }
 }
