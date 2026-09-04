@@ -20,9 +20,11 @@ curl -fsSL https://raw.githubusercontent.com/SebastianPuchet/localloom/main/scri
 **Or download it** — [**LocalLoom 1.0**](https://github.com/SebastianPuchet/localloom/releases/download/v1.0/LocalLoom-1.0.dmg).
 Open the `.dmg` and drag **LocalLoom** to **Applications**.
 
-Then open it once. LocalLoom is signed, but not *notarized* — notarizing requires a paid
-Apple Developer account — so the first launch needs one extra confirmation. Pick whichever
-of these you prefer; they do the same thing.
+### Opening a downloaded copy
+
+Only if you took the download route. LocalLoom is signed, but not *notarized* — notarizing
+requires a paid Apple Developer account — so macOS asks once before it will run a
+downloaded copy. Either of these clears it; they do the same thing.
 
 **Without the Terminal**
 
