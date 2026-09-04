@@ -495,7 +495,12 @@ private struct SelectorRow<Content: View>: View {
                     .strokeBorder(LoomTheme.rowStroke))
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        // `.borderlessButton` hands the label to an NSPopUpButton-style cell, which draws
+        // only the icon and the first Text and centres them — the value, the chevron and
+        // the row's own fill never appeared. `.button` + `.plain` lets SwiftUI lay the
+        // label out as written.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel("\(title): \(value)")
     }
