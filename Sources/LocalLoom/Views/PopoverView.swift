@@ -23,6 +23,7 @@ struct PopoverView: View {
         }
         .padding(14)
         .frame(width: 340)
+        .background(PopoverWindowReader())
         .task { await coordinator.refreshSources() }
         .onAppear { coordinator.popoverAppeared() }
         .onDisappear { coordinator.popoverDisappeared() }
@@ -334,6 +335,27 @@ struct PopoverView: View {
         .background(
             RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous)
                 .fill(Color.orange.opacity(0.12)))
+    }
+}
+
+/// Records which `NSWindow` is hosting the popover, so the `willClose` backstop in
+/// `AppDelegate` can tell the popover apart from the transient windows SwiftUI's `Menu`
+/// puts up for each picker.
+private struct PopoverWindowReader: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        capture(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) { capture(nsView) }
+
+    /// `view.window` is nil until the view is in the hierarchy, hence the hop.
+    private func capture(_ view: NSView) {
+        Task { @MainActor in
+            guard let window = view.window else { return }
+            RecordingCoordinator.shared.popoverWindow = window
+        }
     }
 }
 

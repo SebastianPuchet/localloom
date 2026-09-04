@@ -37,14 +37,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Belt and braces for the overlays: SwiftUI's onDisappear on the menu bar popover
         // is the primary signal, but if AppKit closes that window without SwiftUI telling
-        // us, the overlays would linger. Any window of ours that is not a floating panel
-        // is the popover.
+        // us, the overlays would linger.
+        //
+        // It matches the popover by *identity*. It used to match "any window of ours that
+        // is not a FloatingPanel", which was wrong: every SwiftUI `Menu` in the popover —
+        // the screen, camera and microphone pickers — puts up a window of its own, and
+        // closing that menu to make a choice read as the popover closing. The overlays and
+        // the camera session were torn down the instant the user picked anything.
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { notification in
-            guard let window = notification.object as? NSWindow, !(window is FloatingPanel)
-            else { return }
-            MainActor.assumeIsolated { RecordingCoordinator.shared.popoverDisappeared() }
+            guard let window = notification.object as? NSWindow else { return }
+            MainActor.assumeIsolated {
+                let coordinator = RecordingCoordinator.shared
+                guard window === coordinator.popoverWindow else { return }
+                coordinator.popoverWindow = nil
+                coordinator.popoverDisappeared()
+            }
         }
     }
 
