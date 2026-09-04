@@ -24,7 +24,10 @@ final class FloatingPanel: NSPanel {
                               .stationary]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // AppKit's window shadow traces the alpha mask of a borderless, non-opaque window
+        // and draws a hard black contour around it — that is the "weird black border".
+        // The overlays draw their own soft SwiftUI shadow into their padding instead.
+        hasShadow = false
         isMovableByWindowBackground = draggable
         hidesOnDeactivate = false
         animationBehavior = .none
@@ -43,6 +46,11 @@ final class FloatingPanel: NSPanel {
     func setContent<Content: View>(_ content: Content) {
         let host = NSHostingView(rootView: content)
         host.frame = NSRect(origin: .zero, size: frame.size)
+        // NSHostingView is layer-backed; make sure nothing in it paints an opaque ground
+        // behind the transparent window.
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.clear.cgColor
+        host.layer?.isOpaque = false
         contentView = host
     }
 
