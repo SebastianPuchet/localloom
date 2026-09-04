@@ -13,7 +13,7 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: LoomTheme.overlayIconSize, weight: .semibold))
                 .foregroundStyle(prominent ? Color.white : tint)
                 .overlayButtonFrame()
                 .background(
@@ -46,7 +46,7 @@ struct ControlBarView: View {
             Capsule(style: .continuous)
                 .fill(.regularMaterial)
                 .overlay(Capsule(style: .continuous).strokeBorder(LoomTheme.rowStroke))
-                .shadow(color: .black.opacity(0.28), radius: 12, y: 4)
+                .shadow(color: .black.opacity(0.30), radius: 11, y: 3)
 
             if let pending {
                 confirmStrip(pending)
@@ -54,7 +54,7 @@ struct ControlBarView: View {
                 controls
             }
         }
-        .padding(8)
+        .padding(OverlayController.overlayPadding)
         .frame(width: OverlayController.controlBarSize.width,
                height: OverlayController.controlBarSize.height)
         .task(id: pending) {
@@ -65,15 +65,15 @@ struct ControlBarView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             statusDot
             Text(loomTimeString(coordinator.elapsed))
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .font(.system(size: 15, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(coordinator.isActive ? .primary : .secondary)
                 .accessibilityLabel("Elapsed \(loomTimeString(coordinator.elapsed))")
 
-            Divider().frame(height: 18).padding(.horizontal, 4)
+            Divider().frame(height: 24).padding(.horizontal, 4)
 
             // Doubles as the start button, so the bar is useful before recording too.
             IconButton(
@@ -102,39 +102,39 @@ struct ControlBarView: View {
             .disabled(!coordinator.isActive)
             .opacity(coordinator.isActive ? 1 : 0.32)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
     }
 
     private func confirmStrip(_ action: Pending) -> some View {
         HStack(spacing: 8) {
             Text(action == .restart ? "Start over?" : "Discard take?")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize()
             Spacer(minLength: 0)
             Button("Cancel") { pending = nil }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
             Button(action == .restart ? "Restart" : "Delete") {
                 pending = nil
                 if action == .restart { coordinator.restart() } else { coordinator.discard() }
             }
             .buttonStyle(.plain)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(Capsule().fill(LoomTheme.recording))
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
     }
 
     private var statusDot: some View {
         Circle()
             .fill(dotColor)
-            .frame(width: 8, height: 8)
-            .padding(.trailing, 4)
+            .frame(width: 10, height: 10)
+            .padding(.trailing, 2)
             .accessibilityLabel(statusLabel)
     }
 
@@ -158,9 +158,9 @@ struct CameraBubbleView: View {
             .frame(width: OverlayController.cameraDiameter,
                    height: OverlayController.cameraDiameter)
             .clipShape(Circle())
-            .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 3))
-            .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
-            .padding(10)
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 4))
+            .shadow(color: .black.opacity(0.35), radius: 11, y: 3)
+            .padding(OverlayController.overlayPadding)
             .accessibilityLabel("Camera bubble — drag to place it in the recording")
     }
 }

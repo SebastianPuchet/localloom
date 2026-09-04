@@ -8,6 +8,11 @@ enum LoomTheme {
     static let recording = Color(red: 0.95, green: 0.26, blue: 0.30)
     static let paused = Color(red: 0.98, green: 0.68, blue: 0.18)
 
+    /// Hit target for the icon-only buttons. Comfortable for a floating bar the user
+    /// clicks mid-recording without looking.
+    static let overlayButtonSize: CGFloat = 38
+    static let overlayIconSize: CGFloat = 16
+
     static let cardCorner: CGFloat = 12
     static let rowCorner: CGFloat = 9
 
@@ -19,7 +24,7 @@ enum LoomTheme {
 extension View {
     /// Standard hit target for the icon-only buttons in the floating control bar.
     func overlayButtonFrame() -> some View {
-        frame(width: 30, height: 30)
+        frame(width: LoomTheme.overlayButtonSize, height: LoomTheme.overlayButtonSize)
     }
 }
 

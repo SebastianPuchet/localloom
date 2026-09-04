@@ -148,9 +148,10 @@ struct PopoverView: View {
         if coordinator.cameraActive, coordinator.selectedCameraID != nil {
             VStack(spacing: 6) {
                 CameraPreview(frames: coordinator.cameraFrames)
-                    .frame(width: 76, height: 76)
+                    .frame(width: 132, height: 132)
                     .clipShape(Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 2.5))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 3))
+                    .shadow(color: .black.opacity(0.22), radius: 8, y: 2)
                     .accessibilityLabel("Live camera preview")
                 Text("Drag the circle on screen to place it in the recording.")
                     .font(.system(size: 10))

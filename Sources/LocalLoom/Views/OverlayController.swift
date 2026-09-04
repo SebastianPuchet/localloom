@@ -11,10 +11,19 @@ import SwiftUI
 final class OverlayController {
     static let shared = OverlayController()
 
-    static let controlBarSize = CGSize(width: 300, height: 62)
-    static let cameraDiameter: CGFloat = 128
+    /// Window sizes, not content sizes: each panel keeps `overlayPadding` of clear space
+    /// around its content so the SwiftUI shadow has somewhere to land. The window shadow
+    /// is off — it drew a hard black outline around the transparent panels.
+    static let overlayPadding: CGFloat = 16
+    static let controlBarContentSize = CGSize(width: 306, height: 60)
+    static var controlBarSize: CGSize {
+        CGSize(width: controlBarContentSize.width + overlayPadding * 2,
+               height: controlBarContentSize.height + overlayPadding * 2)
+    }
+    static let cameraDiameter: CGFloat = 190
     static var cameraWindowSize: CGSize {
-        CGSize(width: cameraDiameter + 20, height: cameraDiameter + 20)
+        CGSize(width: cameraDiameter + overlayPadding * 2,
+               height: cameraDiameter + overlayPadding * 2)
     }
 
     private var controlPanel: FloatingPanel?
