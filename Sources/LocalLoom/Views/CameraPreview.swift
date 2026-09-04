@@ -35,9 +35,10 @@ struct CameraPreview: NSViewRepresentable {
 
         func attach(to view: CameraPreviewView, frames: LatestCamFrame) {
             self.frames = frames
-            // Frames arrive on the camera queue; CALayer work has to happen on main.
+            // Handed straight to the view on the camera queue: the conversion runs on the
+            // view's own render queue and only the layer assignment hops to main.
             token = frames.addObserver { [weak view] buffer in
-                DispatchQueue.main.async { view?.show(buffer) }
+                view?.submit(buffer)
             }
         }
 
@@ -51,12 +52,27 @@ struct CameraPreview: NSViewRepresentable {
 }
 
 /// Draws the newest camera frame into a circular layer, centre-cropped to a square.
+///
+/// The conversion (crop, mirror, `createCGImage`) happens off the main thread on a private
+/// serial queue, and a frame is dropped only while an earlier one is still converting. The
+/// preview therefore runs at whatever the camera delivers rather than at a fixed low cap,
+/// and a bigger preview does not turn into main-thread work.
 final class CameraPreviewView: NSView {
-    var mirrored = true
+    var mirrored: Bool {
+        get { stateLock.withLock { storedMirrored } }
+        set { stateLock.withLock { storedMirrored = newValue } }
+    }
 
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let imageLayer = CALayer()
-    private var lastRenderAt: CFTimeInterval = 0
+    private let renderQueue = DispatchQueue(
+        label: "com.sebastianpuchet.localloom.preview", qos: .userInitiated)
+
+    private let stateLock = NSLock()
+    private var storedMirrored = true
+    /// Side of the square we render, in pixels. Refreshed on layout.
+    private var targetPixels: CGFloat = 256
+    private var isRendering = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -74,25 +90,56 @@ final class CameraPreviewView: NSView {
         super.layout()
         imageLayer.frame = bounds
         layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+        let scale = window?.backingScaleFactor ?? 2
+        imageLayer.contentsScale = scale
+        stateLock.withLock { targetPixels = max(bounds.width, 1) * scale }
     }
 
     override var isFlipped: Bool { true }
 
-    func show(_ buffer: CVPixelBuffer?) {
+    /// Callable from any thread — frames arrive on the camera capture queue.
+    func submit(_ buffer: CVPixelBuffer?) {
         guard let buffer else {
-            imageLayer.contents = nil
+            setContents(nil)
             return
         }
-        // 24fps is plenty for a preview and keeps the GPU cost off the capture path.
-        let now = CACurrentMediaTime()
-        guard now - lastRenderAt >= 1.0 / 24 else { return }
-        lastRenderAt = now
+        stateLock.lock()
+        // Back-pressure instead of a frame-rate cap: never more than one conversion in
+        // flight, so the camera queue is never blocked and nothing piles up on main.
+        guard !isRendering else {
+            stateLock.unlock()
+            return
+        }
+        isRendering = true
+        let target = targetPixels
+        let mirror = storedMirrored
+        stateLock.unlock()
 
-        let scale = window?.backingScaleFactor ?? 2
-        let target = max(bounds.width, 1) * scale
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            let rendered = self.render(buffer, target: target, mirror: mirror)
+            self.setContents(rendered) {
+                self.stateLock.withLock { self.isRendering = false }
+            }
+        }
+    }
+
+    private func setContents(_ image: CGImage?, then completion: (() -> Void)? = nil) {
+        DispatchQueue.main.async { [weak self] in
+            if let self {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.imageLayer.contents = image
+                CATransaction.commit()
+            }
+            completion?()
+        }
+    }
+
+    private func render(_ buffer: CVPixelBuffer, target: CGFloat, mirror: Bool) -> CGImage? {
         var image = CIImage(cvPixelBuffer: buffer)
         let extent = image.extent
-        guard extent.width > 0, extent.height > 0 else { return }
+        guard extent.width > 0, extent.height > 0, target > 0 else { return nil }
 
         let side = min(extent.width, extent.height)
         let originX = extent.midX - side / 2
@@ -101,17 +148,20 @@ final class CameraPreviewView: NSView {
             .cropped(to: CGRect(x: originX, y: originY, width: side, height: side))
             .transformed(by: CGAffineTransform(translationX: -originX, y: -originY))
             .transformed(by: CGAffineTransform(scaleX: target / side, y: target / side))
-        if mirrored {
+        if mirror {
             image = image
                 .transformed(by: CGAffineTransform(scaleX: -1, y: 1))
                 .transformed(by: CGAffineTransform(translationX: target, y: 0))
         }
-        guard let rendered = context.createCGImage(
+        return context.createCGImage(
             image, from: CGRect(x: 0, y: 0, width: target, height: target))
-        else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        imageLayer.contents = rendered
-        CATransaction.commit()
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
     }
 }
