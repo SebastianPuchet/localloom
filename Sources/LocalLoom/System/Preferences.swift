@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// Remembers the last-used source, camera and microphone across launches.
+/// Remembers the last-used source, camera, microphone and output settings across launches.
 enum Preferences {
     private static let defaults = UserDefaults.standard
 
