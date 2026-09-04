@@ -86,6 +86,16 @@ final class RecordingCoordinator: ObservableObject {
         didSet { Preferences.microphoneID = selectedMicrophoneID }
     }
 
+    /// Cap on the recorded frame size. Read when a recording starts, so changing it
+    /// mid-recording is harmless.
+    @Published var selectedResolution: VideoResolution {
+        didSet { Preferences.videoResolution = selectedResolution }
+    }
+    /// Codec the movie is encoded with. Also read only at start.
+    @Published var selectedFormat: VideoFormat {
+        didSet { Preferences.videoFormat = selectedFormat }
+    }
+
     /// Normalized (0...1, bottom-left origin) centre of the webcam bubble. Dragging the
     /// floating camera circle writes here, and the compositor reads it for every frame —
     /// so where the circle sits on screen is where it lands in the MP4.
@@ -120,6 +130,8 @@ final class RecordingCoordinator: ObservableObject {
 
     private init() {
         bubblePosition = Preferences.bubblePosition
+        selectedResolution = Preferences.videoResolution
+        selectedFormat = Preferences.videoFormat
         if let raw = Preferences.sourceID { selectedSourceID = SourceID(rawValue: raw) }
         selectedWindowName = Preferences.windowName
         selectedCameraID = Preferences.cameraID
@@ -311,11 +323,12 @@ final class RecordingCoordinator: ObservableObject {
             let filter = try await catalog.makeFilter(for: sourceID)
             guard !cancelRequested else { throw CoordinatorError.cancelled }
 
-            let capturer = try ScreenCapturer(filter: filter, microphoneID: microphoneID)
+            let capturer = try ScreenCapturer(
+                filter: filter, microphoneID: microphoneID, resolution: selectedResolution)
             let url = try RecordingSettings.newOutputURL()
             let writer = try MovieWriter(
                 url: url, width: capturer.width, height: capturer.height,
-                includeAudio: microphoneID != nil)
+                format: selectedFormat, includeAudio: microphoneID != nil)
             if compositor == nil { compositor = BubbleCompositor() }
             guard let compositor else { throw CoordinatorError.noGPU }
             compositor.bubblePosition = bubblePosition

@@ -19,13 +19,25 @@ final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private let queue = DispatchQueue(label: "com.sebastianpuchet.localloom.capture")
     private let capturesMicrophone: Bool
 
-    init(filter: SCContentFilter, microphoneID: String?) throws {
+    init(
+        filter: SCContentFilter, microphoneID: String?, resolution: VideoResolution
+    ) throws {
         // `contentRect` is in points; only `pointPixelScale` gets us real pixels. Never
-        // trust SCDisplay.width. Dimensions must be even for H.264.
+        // trust SCDisplay.width. Dimensions must be even for H.264 and HEVC.
         let scale = CGFloat(filter.pointPixelScale)
         let rect = filter.contentRect
-        width = max(2, Int((rect.width * scale).rounded()) & ~1)
-        height = max(2, Int((rect.height * scale).rounded()) & ~1)
+        let sourceWidth = RecordingSettings.evenDimension(rect.width * scale)
+        let sourceHeight = RecordingSettings.evenDimension(rect.height * scale)
+
+        // The downscale happens here, in the stream configuration, rather than in the
+        // compositor: ScreenCaptureKit resizes on the GPU while it is already touching
+        // the frame, which costs nothing, and every stage after this one — compositing,
+        // the pixel buffer pool, the encoder — then works on the smaller frame too.
+        let size = RecordingSettings.outputSize(
+            width: sourceWidth, height: sourceHeight, resolution: resolution)
+        width = size.width
+        height = size.height
+        let isDownscaled = width < sourceWidth || height < sourceHeight
 
         let config = SCStreamConfiguration()
         config.width = width
@@ -34,7 +46,10 @@ final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         config.minimumFrameInterval = CMTime(
             value: 1, timescale: CMTimeScale(RecordingSettings.framesPerSecond))
         config.queueDepth = RecordingSettings.queueDepth
-        config.scalesToFit = false
+        // `scalesToFit` is what makes SCK resize rather than crop. The output box is
+        // derived from the source's own aspect ratio, so `preservesAspectRatio` has
+        // nothing left to letterbox.
+        config.scalesToFit = isDownscaled
         config.preservesAspectRatio = true
         config.showsCursor = true
         config.showMouseClicks = true

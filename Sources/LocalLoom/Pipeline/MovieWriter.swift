@@ -36,20 +36,36 @@ final class MovieWriter: @unchecked Sendable {
     /// Called on the writer queue when the writer enters `.failed`.
     var onFailure: ((Error) -> Void)?
 
-    init(url: URL, width: Int, height: Int, includeAudio: Bool) throws {
+    init(
+        url: URL, width: Int, height: Int, format: VideoFormat, includeAudio: Bool
+    ) throws {
         self.url = url
         writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
 
+        // Both keys are set on purpose. The frame count guards the steady state, and the
+        // duration guards the rest: screen capture emits frames irregularly and the stall
+        // watchdog re-appends at 2 fps, so "150 frames" on a static screen would otherwise
+        // mean over a minute between keyframes.
+        var compression: [String: Any] = [
+            AVVideoAverageBitRateKey: RecordingSettings.bitrate(
+                width: width, height: height, format: format),
+            AVVideoMaxKeyFrameIntervalKey: Int(
+                Double(RecordingSettings.framesPerSecond)
+                    * RecordingSettings.keyFrameIntervalSeconds),
+            AVVideoMaxKeyFrameIntervalDurationKey: RecordingSettings.keyFrameIntervalSeconds,
+            AVVideoAllowFrameReorderingKey: false,
+        ]
+        // HEVC rejects the H.264 profile constants, and its default (Main) is the right
+        // one for the 8-bit BGRA frames we hand it.
+        if format == .h264 {
+            compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        }
+
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: format == .hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: RecordingSettings.bitrate(width: width, height: height),
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoMaxKeyFrameIntervalKey: RecordingSettings.framesPerSecond * 2,
-                AVVideoAllowFrameReorderingKey: false,
-            ],
+            AVVideoCompressionPropertiesKey: compression,
         ]
         videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         videoInput.expectsMediaDataInRealTime = true

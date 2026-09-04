@@ -14,6 +14,8 @@ enum Preferences {
         static let bubbleY = "bubblePositionY"
         static let controlBarX = "controlBarOriginX"
         static let controlBarY = "controlBarOriginY"
+        static let videoResolution = "videoResolution"
+        static let videoFormat = "videoFormat"
     }
 
     /// `SourceID.rawValue`, e.g. "display:1" or "window:4213".
@@ -41,6 +43,28 @@ enum Preferences {
     static var microphoneID: String? {
         get { defaults.string(forKey: Key.microphoneID) }
         set { defaults.set(newValue, forKey: Key.microphoneID) }
+    }
+
+    /// Cap on the recorded frame size. Defaults to 1080p.
+    static var videoResolution: VideoResolution {
+        get {
+            guard let raw = defaults.string(forKey: Key.videoResolution),
+                  let value = VideoResolution(rawValue: raw)
+            else { return .fallback }
+            return value
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.videoResolution) }
+    }
+
+    /// Codec the movie is encoded with. Defaults to H.264.
+    static var videoFormat: VideoFormat {
+        get {
+            guard let raw = defaults.string(forKey: Key.videoFormat),
+                  let value = VideoFormat(rawValue: raw)
+            else { return .fallback }
+            return value
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.videoFormat) }
     }
 
     /// Normalized (0...1, bottom-left origin) centre of the webcam bubble. Driven by
