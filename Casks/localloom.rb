@@ -1,11 +1,11 @@
 cask "localloom" do
   version "1.0"
-  sha256 :no_check
+  sha256 "ce873001280c51f571d1e050a9b20bf130d22f9053f78271bdda4688199efb1b"
 
-  url "https://example.com/releases/LocalLoom-#{version}.dmg"
+  url "https://github.com/SebastianPuchet/localloom/releases/download/v#{version}/LocalLoom-#{version}.dmg"
   name "LocalLoom"
   desc "Local-only menu bar screen recorder with a webcam bubble"
-  homepage "https://example.com/localloom"
+  homepage "https://github.com/SebastianPuchet/localloom"
 
   app "LocalLoom.app"
 

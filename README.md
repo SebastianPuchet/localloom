@@ -10,7 +10,15 @@ Requires macOS 15 or later.
 
 ## Install
 
-Download `LocalLoom-1.0.dmg`, open it, and drag **LocalLoom** to **Applications**.
+**The one-line install** — nothing to confirm, because files fetched by the shell are never
+flagged as downloads:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SebastianPuchet/localloom/main/scripts/install.sh | bash
+```
+
+**Or download it** — [**LocalLoom 1.0**](https://github.com/SebastianPuchet/localloom/releases/download/v1.0/LocalLoom-1.0.dmg).
+Open the `.dmg` and drag **LocalLoom** to **Applications**.
 
 Then open it once. LocalLoom is signed, but not *notarized* — notarizing requires a paid
 Apple Developer account — so the first launch needs one extra confirmation. Pick whichever

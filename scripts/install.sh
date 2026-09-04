@@ -1,10 +1,9 @@
 #!/bin/bash
-# curl -fsSL <url>/install.sh | bash
+# curl -fsSL https://raw.githubusercontent.com/SebastianPuchet/localloom/main/scripts/install.sh | bash
 # Files fetched by the shell are never quarantined, so this is the only genuinely
-# one-step install. Set LOCALLOOM_DMG_URL to point at a release asset.
+# one-step install. Override LOCALLOOM_DMG_URL to install a different build.
 set -euo pipefail
-URL="${LOCALLOOM_DMG_URL:-}"
-[ -n "$URL" ] || { echo "Set LOCALLOOM_DMG_URL to the LocalLoom .dmg URL."; exit 1; }
+URL="${LOCALLOOM_DMG_URL:-https://github.com/SebastianPuchet/localloom/releases/download/v1.0/LocalLoom-1.0.dmg}"
 
 TMP="$(mktemp -d)"
 trap 'hdiutil detach "$TMP/mnt" >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
