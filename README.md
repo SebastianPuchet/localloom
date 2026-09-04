@@ -10,20 +10,38 @@ Requires macOS 15 or later.
 
 ## Install
 
-1. Download `LocalLoom-1.0.dmg`, open it, and drag **LocalLoom** to **Applications**.
-2. Run this once in Terminal:
+Download `LocalLoom-1.0.dmg`, open it, and drag **LocalLoom** to **Applications**.
 
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/LocalLoom.app
-   ```
+Then open it once. LocalLoom is signed, but not *notarized* — notarizing requires a paid
+Apple Developer account — so the first launch needs one extra confirmation. Pick whichever
+of these you prefer; they do the same thing.
 
-   LocalLoom is signed but not notarized (that needs a paid Apple Developer account).
-   Without this line macOS shows an "app is damaged" dialog whose only options are *Done*
-   and *Move to Trash* — the right-click → Open bypass was removed in macOS 26.
+**Without the Terminal**
 
-3. Open LocalLoom. It lives in the menu bar; there is no Dock icon or window.
+1. Double-click **LocalLoom**. macOS says it cannot verify the app is free of malware, and
+   offers only *Done*.
+2. Open **System Settings → Privacy & Security**, scroll to **Security**. There is a line
+   saying LocalLoom was blocked, with an **Open Anyway** button. Click it and confirm.
+3. LocalLoom starts. You will not be asked again.
 
-Alternatively, from a clone of this repo: `scripts/build.sh && dist/Install.command`.
+**With the Terminal** — one line, same result:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/LocalLoom.app
+```
+
+This strips the download flag, so macOS never runs the check in the first place.
+
+LocalLoom lives in the menu bar. There is no Dock icon and no window.
+
+> The right-click → Open shortcut that used to work was removed in macOS 26, which is why
+> one of the two steps above is necessary.
+
+**From source** — a clone is never quarantined, so this needs no extra step at all:
+
+```sh
+scripts/build.sh && cp -R dist/LocalLoom.app /Applications/
+```
 
 ## Permissions
 
