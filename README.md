@@ -42,12 +42,24 @@ exempt an app from that; only a paid Developer ID with a special entitlement doe
 
 | | |
 |---|---|
-| Start | Menu bar icon → pick screen/camera/mic → **Start Recording** |
+| Start | Menu bar icon → **Entire Screen** or **Window** → camera/mic → **Start Recording** |
 | Stop | **⌘⇧8** from anywhere, the floating bar's stop button, or **Stop & Save** |
 | Output | `~/Movies/LocalLoom/LocalLoom <date>.mp4`, revealed in Finder when it finishes |
 
 The icon turns into a red dot while recording. Your last-used source, camera and microphone
 are remembered.
+
+### Choosing a window
+
+**Window** does not open a list. It dims every display and highlights whatever window is
+under the pointer, with the app's icon and the window's title, the way the system's own
+screenshot tool does. Click to choose it; **esc**, a right click, a click on empty desktop
+or switching apps all cancel and leave the previous choice alone.
+
+The window under the pointer is found with `CGWindowListCopyWindowInfo`, which returns
+windows front to back — `SCShareableContent` has no defined z-order, so it cannot answer
+"which one is on top here". LocalLoom's own windows are filtered out by process id, so the
+picker can never target the picker.
 
 ### The floating controls
 
@@ -61,9 +73,9 @@ Opening the menu bar popover — and recording — puts two small draggable wind
   the recorded display and read by the compositor for every frame. It is remembered between
   recordings.
 
-Neither window is recorded. Both are excluded from capture twice over: `sharingType = .none`
-on the panel itself, and an app-excluding `SCContentFilter` built after the overlays are on
-screen.
+Neither window is recorded, and neither are the picker overlays. All of them are excluded
+from capture twice over: `sharingType = .none` on the panel itself, and an app-excluding
+`SCContentFilter` built after the overlays are on screen.
 
 Recording with no camera is a first-class mode — set Camera to **Off**, and no circle
 appears at all.
@@ -101,6 +113,12 @@ Three details do most of the work:
 - **A stall watchdog.** ScreenCaptureKit stops emitting frames when the screen does not
   change. Without re-appending the last frame after half a second, long recordings of a
   static screen silently lose their tail.
+- **One coordinate conversion, in one place.** `kCGWindowBounds` and `SCWindow.frame` put
+  the origin at the top-left of the *primary* display with y going down; `NSWindow` and
+  `NSScreen` put it at the bottom-left with y going up. `ScreenGeometry` flips between them
+  against the height of the screen whose origin is `(0, 0)` — never `NSScreen.main`, which
+  is merely the screen with keyboard focus and is only the same screen when there is one
+  monitor. That is why the highlight lands on the right window on a second display.
 - **Pause is faked, carefully.** `AVAssetWriter` has no pause API. LocalLoom stops
   appending, suspends the watchdog (which would otherwise pack the pause with duplicated
   frames), and subtracts the accumulated paused time from every later presentation
