@@ -167,19 +167,51 @@ struct PopoverView: View {
         if let error = catalog.lastError, catalog.sources.isEmpty {
             noticeLabel(error, icon: "display.trianglebadge.exclamationmark", tint: .secondary)
         }
+        if let cameraNotice = coordinator.cameraNotice {
+            noticeLabel(
+                cameraNotice, icon: "video.slash.fill", tint: .orange,
+                action: coordinator.cameraAccessDenied ? "Open Settings…" : nil,
+                perform: { Permissions.openCameraSettings() },
+                dismiss: { coordinator.cameraNotice = nil })
+        }
         if let notice = coordinator.notice {
-            noticeLabel(notice, icon: "exclamationmark.triangle.fill", tint: .orange)
+            noticeLabel(
+                notice, icon: "exclamationmark.triangle.fill", tint: .orange,
+                dismiss: { coordinator.notice = nil })
         }
         if case .failed(let message) = coordinator.state {
             noticeLabel(message, icon: "xmark.octagon.fill", tint: LoomTheme.recording)
         }
     }
 
-    private func noticeLabel(_ text: String, icon: String, tint: Color) -> some View {
+    /// Notices are advisory, so every one of them can be dismissed by hand as well as
+    /// clearing itself when the condition goes away.
+    private func noticeLabel(
+        _ text: String, icon: String, tint: Color,
+        action: String? = nil, perform: (() -> Void)? = nil,
+        dismiss: (() -> Void)? = nil
+    ) -> some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: icon).font(.system(size: 10))
-            Text(text).font(.system(size: 11))
-                .fixedSize(horizontal: false, vertical: true)
+            Image(systemName: icon).font(.system(size: 10)).padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(text).font(.system(size: 11))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let action, let perform {
+                    Button(action, action: perform)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LoomTheme.accent)
+                }
+            }
+            Spacer(minLength: 0)
+            if let dismiss {
+                Button(action: dismiss) {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Dismiss")
+            }
         }
         .foregroundStyle(tint)
         .frame(maxWidth: .infinity, alignment: .leading)

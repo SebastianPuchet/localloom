@@ -40,12 +40,27 @@ final class RecordingCoordinator: ObservableObject {
         }
     }
     @Published private(set) var elapsed: TimeInterval = 0
-    /// Non-fatal notice shown in the popover, e.g. "camera disconnected".
+    /// Non-fatal notice shown in the popover, e.g. "microphone access denied".
     @Published var notice: String?
+    /// Camera-specific notice, kept apart from `notice` so it can be cleared the moment the
+    /// camera works again. Folding it into `notice` is what made "camera disconnected"
+    /// stick around forever: nothing but `start()` ever cleared it.
+    @Published var cameraNotice: String?
+    /// True once camera access has been refused, so we stop retrying on every UI change.
+    /// Reset when the popover opens — the user may have granted it in System Settings.
+    @Published private(set) var cameraAccessDenied = false
     /// True while a camera session is actually delivering frames.
     @Published private(set) var cameraActive = false
     /// The menu bar popover is on screen. The floating overlays follow it.
     @Published private(set) var popoverOpen = false
+    /// The window hosting the popover, recorded by `PopoverWindowReader`.
+    ///
+    /// `AppDelegate` watches `NSWindow.willCloseNotification` as a backstop for the
+    /// popover closing. Every SwiftUI `Menu` in the popover opens — and closes — a window
+    /// of its own, so that observer has to match on *identity*: matching on "any window
+    /// that is not a FloatingPanel" made picking a camera or microphone read as the
+    /// popover closing, which tore the overlays and the camera session down mid-interaction.
+    weak var popoverWindow: NSWindow?
 
     @Published var selectedSourceID: SourceID? {
         didSet {
@@ -104,6 +119,23 @@ final class RecordingCoordinator: ObservableObject {
         selectedCameraID = Preferences.cameraID
         selectedMicrophoneID = Preferences.microphoneID
         isSettingUp = false
+
+        // A camera that comes back must bring the bubble back with it, and clear the
+        // disconnect notice. External capture devices drop out often enough that a
+        // one-way "gone forever" latch is simply wrong.
+        NotificationCenter.default.addObserver(
+            forName: AVCaptureDevice.wasConnectedNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { RecordingCoordinator.shared.cameraReturned() }
+        }
+    }
+
+    /// A capture device was plugged back in.
+    private func cameraReturned() {
+        catalog.refreshDevices()
+        guard selectedCameraID != nil, runningCameraID == nil else { return }
+        cameraNotice = nil
+        syncCameraSession()
     }
 
     var isRecording: Bool { state == .recording }
@@ -135,6 +167,8 @@ final class RecordingCoordinator: ObservableObject {
 
     func popoverAppeared() {
         popoverOpen = true
+        // The user may have granted access in System Settings since the last refusal.
+        cameraAccessDenied = false
         syncCameraSession()
         OverlayController.shared.update()
     }
@@ -151,6 +185,7 @@ final class RecordingCoordinator: ObservableObject {
         guard !state.isBusy else { return }
         state = .preparing
         notice = nil
+        cameraNotice = nil
         cancelRequested = false
         isStopping = false
         startTask = Task { [weak self] in await self?.performStart() }
@@ -420,40 +455,57 @@ final class RecordingCoordinator: ObservableObject {
         runningCameraID = desired
 
         guard let desired else { return }
+        guard !cameraAccessDenied else {
+            runningCameraID = nil
+            cameraNotice = "Camera access is off for LocalLoom — recording the screen only."
+            return
+        }
         cameraTask = Task { [weak self] in
             guard let self else { return }
             guard await self.ensureCameraAccess() else {
                 guard self.runningCameraID == desired else { return }
                 self.runningCameraID = nil
-                self.selectedCameraID = nil
-                self.notice = "Camera access was denied — recording the screen only."
+                self.cameraAccessDenied = true
+                // The selection is the user's, not ours to throw away: keep it so the
+                // bubble comes back by itself once access is granted.
+                self.cameraNotice =
+                    "Camera access is off for LocalLoom — recording the screen only."
                 return
             }
             guard !Task.isCancelled, self.runningCameraID == desired else { return }
             do {
                 let capturer = try CameraCapturer(deviceID: desired, frames: self.cameraFrames)
                 capturer.onDisconnect = { [weak self] in
-                    Task { @MainActor in
-                        guard let self else { return }
-                        self.cameraActive = false
-                        self.runningCameraID = nil
-                        self.notice =
-                            "Camera disconnected — the bubble is gone, recording continues."
-                        OverlayController.shared.update()
-                    }
+                    Task { @MainActor in self?.handleCameraLoss(deviceID: desired) }
                 }
                 capturer.start()
                 self.camera = capturer
                 self.cameraActive = true
+                // The camera is live: whatever the last camera complaint was, it is stale.
+                self.cameraNotice = nil
                 OverlayController.shared.update()
             } catch {
                 self.runningCameraID = nil
                 self.cameraActive = false
                 // A missing camera must never block a screen recording.
-                self.notice = "Camera unavailable — recording the screen only."
+                self.cameraNotice = "Camera unavailable — recording the screen only."
                 OverlayController.shared.update()
             }
         }
+    }
+
+    /// The camera went away. Tear the dead session down so a reconnect can rebuild it, and
+    /// say so only while it is actually gone.
+    private func handleCameraLoss(deviceID: String) {
+        guard runningCameraID == deviceID else { return }
+        camera?.stop()
+        camera = nil
+        cameraActive = false
+        runningCameraID = nil
+        cameraNotice = state.isActive
+            ? "Camera disconnected — the bubble is gone, recording continues."
+            : "Camera disconnected."
+        OverlayController.shared.update()
     }
 
     private func ensureCameraAccess() async -> Bool {

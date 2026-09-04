@@ -85,7 +85,8 @@ final class SourceCatalog: ObservableObject {
         }
     }
 
-    private func refreshDevices() {
+    /// Device-only refresh, cheap enough to run on a hot-plug notification.
+    func refreshDevices() {
         let cameraSession = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera, .deskViewCamera],
             mediaType: .video, position: .unspecified)
