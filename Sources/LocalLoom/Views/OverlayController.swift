@@ -6,7 +6,9 @@ import SwiftUI
 /// Both are shown while a recording is active *and* while the menu bar popover is open, so
 /// the user can place the camera bubble before pressing record. Both are excluded from
 /// capture two ways — `NSWindow.sharingType = .none` on the panel itself, and the
-/// app-excluding `SCContentFilter` built in `SourceCatalog.makeFilter`.
+/// app-excluding `SCContentFilter` built in `SourceCatalog.makeFilter`. Only the second
+/// one matters for our own movies, so `Preferences.overlaysCapturable` can drop the first
+/// when the overlays need to show up in *another* recorder's capture.
 @MainActor
 final class OverlayController {
     static let shared = OverlayController()

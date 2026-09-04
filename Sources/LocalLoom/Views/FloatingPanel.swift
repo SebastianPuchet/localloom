@@ -33,8 +33,10 @@ final class FloatingPanel: NSPanel {
         animationBehavior = .none
         isReleasedWhenClosed = false
         // Keep it off screenshots-of-the-app lists as far as AppKit allows; the real
-        // exclusion happens in the SCContentFilter.
-        sharingType = .none
+        // exclusion happens in the SCContentFilter. `.none` hides the panel from every
+        // capture client on the system, though, so recording a LocalLoom demo with another
+        // recorder needs it off — see `Preferences.overlaysCapturable`.
+        sharingType = Preferences.overlaysCapturable ? .readOnly : .none
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(didMove(_:)),

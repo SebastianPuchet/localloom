@@ -16,6 +16,23 @@ enum Preferences {
         static let controlBarY = "controlBarOriginY"
         static let videoResolution = "videoResolution"
         static let videoFormat = "videoFormat"
+        static let overlaysCapturable = "overlaysCapturableByOtherApps"
+    }
+
+    /// Lets *other* screen recorders see the control bar and camera bubble.
+    ///
+    /// The panels normally set `NSWindow.sharingType = .none`, which hides them from every
+    /// capture client on the system, not just ours — so a demo of LocalLoom recorded with
+    /// QuickTime or Loom comes out with the overlays missing. Turning this on drops that
+    /// flag; LocalLoom's own recordings stay clean either way, because the real exclusion
+    /// is the app-excluding `SCContentFilter` in `SourceCatalog.makeFilter`.
+    ///
+    /// There is no UI for it. Set it from the Terminal and relaunch:
+    ///
+    ///     defaults write com.sebastianpuchet.localloom overlaysCapturableByOtherApps -bool YES
+    static var overlaysCapturable: Bool {
+        get { defaults.bool(forKey: Key.overlaysCapturable) }
+        set { defaults.set(newValue, forKey: Key.overlaysCapturable) }
     }
 
     /// `SourceID.rawValue`, e.g. "display:1" or "window:4213".

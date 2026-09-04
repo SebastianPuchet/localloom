@@ -123,6 +123,17 @@ Neither window is recorded, and neither are the picker overlays. All of them are
 from capture twice over: `sharingType = .none` on the panel itself, and an app-excluding
 `SCContentFilter` built after the overlays are on screen.
 
+`sharingType = .none` hides a window from *every* recorder on the Mac, not just LocalLoom,
+so a demo of LocalLoom filmed with QuickTime or Loom comes out with the control bar and
+camera circle missing. The `SCContentFilter` alone keeps LocalLoom's own movies clean, so
+there is a hidden setting that drops the flag from the two floating panels:
+
+```sh
+defaults write com.sebastianpuchet.localloom overlaysCapturableByOtherApps -bool YES
+```
+
+Relaunch afterwards. The window picker's overlays stay hidden either way.
+
 Recording with no camera is a first-class mode — set Camera to **Off**, and no circle
 appears at all.
 
