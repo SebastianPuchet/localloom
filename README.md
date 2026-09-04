@@ -46,8 +46,25 @@ exempt an app from that; only a paid Developer ID with a special entitlement doe
 | Stop | **⌘⇧8** from anywhere, the floating bar's stop button, or **Stop & Save** |
 | Output | `~/Movies/LocalLoom/LocalLoom <date>.mp4`, revealed in Finder when it finishes |
 
-The icon turns into a red dot while recording. Your last-used source, camera and microphone
-are remembered.
+The icon turns into a red dot while recording. Your last-used source, camera, microphone
+and quality are remembered.
+
+### Quality
+
+The **Quality** row sets two things:
+
+- **Resolution** — **1080p** (default), **Native** or **720p**. The cap is a bounding box:
+  the frame keeps its aspect ratio, is never letterboxed and is never upscaled, so a small
+  window records at its own size. A Retina display hands ScreenCaptureKit four times the
+  pixels of what it shows in points — a 3008×1692 screen is a 6016×3384 frame — and capping
+  that at 1080p is by far the biggest thing you can do to the file size. The downscale
+  happens inside `SCStreamConfiguration`, on the GPU, during capture.
+- **Format** — **H.264** (default) or **HEVC**. HEVC files are roughly a third smaller for
+  the same picture and Apple Silicon encodes them in hardware, but H.264 is the format
+  everything accepts, which matters more for a recording you are about to upload.
+
+Bitrates are tuned for screen content, not camera footage: 4.5 Mbps at 1080p30 for H.264
+and 2.5 Mbps for HEVC, scaled by pixel count. Keyframes are five seconds apart.
 
 ### Choosing a window
 
@@ -103,7 +120,7 @@ and the grant survives rebuilds. The first `codesign` run shows a keychain dialo
 
 ScreenCaptureKit delivers BGRA screen frames and — on the *same clock* — microphone PCM.
 Each screen frame is composited with the newest available webcam frame by a Metal-backed
-`CIContext` and appended to a single `AVAssetWriter` (H.264 + AAC, one MP4).
+`CIContext` and appended to a single `AVAssetWriter` (H.264 or HEVC, plus AAC, one MP4).
 
 Three details do most of the work:
 
