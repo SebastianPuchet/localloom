@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKey?.unregister()
+        WindowPickerController.shared.cancel()
         OverlayController.shared.hideAll()
     }
 

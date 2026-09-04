@@ -37,10 +37,16 @@ struct CaptureDevice: Identifiable, Hashable {
     let name: String
 }
 
-/// Enumerates shareable displays/windows and A/V input devices.
+/// Enumerates shareable displays and A/V input devices.
+///
+/// Windows are deliberately **not** enumerated here. A list of every window on the machine
+/// is a poor way to choose one — the names collide, the order is arbitrary and half the
+/// entries are things nobody meant to record. `WindowPickerController` asks the user to
+/// point at the window instead, and hands back a `SourceID.window`; `makeFilter` resolves
+/// that id to an `SCWindow` when the recording starts.
 @MainActor
 final class SourceCatalog: ObservableObject {
-    @Published private(set) var sources: [CaptureSource] = []
+    @Published private(set) var displays: [CaptureSource] = []
     @Published private(set) var cameras: [CaptureDevice] = []
     @Published private(set) var microphones: [CaptureDevice] = []
     /// Non-nil when `SCShareableContent` failed, usually because Screen Recording is denied.
@@ -55,31 +61,15 @@ final class SourceCatalog: ObservableObject {
             let content = try await SCShareableContent.excludingDesktopWindows(
                 false, onScreenWindowsOnly: true)
             self.content = content
-            var list: [CaptureSource] = content.displays.enumerated().map { index, display in
+            displays = content.displays.enumerated().map { index, display in
                 CaptureSource(
                     id: .display(display.displayID),
                     name: "Display \(index + 1) (\(display.width)×\(display.height))",
                     isDisplay: true)
             }
-            let bundleID = Bundle.main.bundleIdentifier
-            list += content.windows
-                .filter { window in
-                    guard let title = window.title, !title.isEmpty else { return false }
-                    guard window.frame.width > 120, window.frame.height > 120 else { return false }
-                    return window.owningApplication?.bundleIdentifier != bundleID
-                }
-                .sorted { ($0.owningApplication?.applicationName ?? "") < ($1.owningApplication?.applicationName ?? "") }
-                .map { window in
-                    let app = window.owningApplication?.applicationName ?? "Window"
-                    return CaptureSource(
-                        id: .window(window.windowID),
-                        name: "\(app) — \(window.title ?? "")",
-                        isDisplay: false)
-                }
-            sources = list
             lastError = nil
         } catch {
-            sources = []
+            displays = []
             content = nil
             lastError = (error as NSError).localizedDescription
         }

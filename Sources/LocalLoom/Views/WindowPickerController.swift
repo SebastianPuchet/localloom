@@ -46,6 +46,13 @@ final class WindowPickerPanel: NSPanel {
 /// window under the cursor is highlighted with its name, a click selects it, and Escape (or
 /// a click on bare desktop) cancels.
 ///
+/// ### It cannot get stuck
+/// The worst failure a full-screen overlay can have is eating every click with no way out.
+/// That is structurally impossible here: the overlay covers the whole screen, and **every**
+/// click on it ends selection mode — over a window it selects, anywhere else it cancels.
+/// Escape, a right click and switching apps all end it too, so no single one of those
+/// mechanisms is load-bearing.
+///
 /// ### Why the cursor is polled rather than tracked
 /// The panels are non-activating, so `mouseMoved` delivery depends on which app is active
 /// and whether the window is key — exactly the things this picker refuses to disturb.
@@ -85,6 +92,10 @@ final class WindowPickerController {
     private let listRefreshInterval: CFTimeInterval = 0.25
     private let pollInterval: TimeInterval = 1.0 / 60.0
 
+    /// How long after the picker opens a loss of focus is ignored. See `installMonitors`.
+    fileprivate let deactivationGrace: CFTimeInterval = 1.0
+    fileprivate var startedAt: CFTimeInterval = 0
+
     /// A cursor position no real cursor can hold, so the first tick always renders.
     private static let noMouse = CGPoint(x: CGFloat.infinity, y: CGFloat.infinity)
 
@@ -103,6 +114,7 @@ final class WindowPickerController {
     func begin(hiding: NSWindow?, completion: @escaping (PickableWindow?) -> Void) {
         guard !isActive else { return }
         isActive = true
+        startedAt = CACurrentMediaTime()
         self.completion = completion
 
         if let hiding {
@@ -202,12 +214,23 @@ final class WindowPickerController {
         }
         if let global { monitors.append(global) }
 
-        // The last line of defence against a stuck full-screen overlay: if focus leaves
-        // LocalLoom for any reason at all, selection mode ends.
+        // Leaving a shielding-level overlay on every display while the user cmd-tabs away
+        // would be obnoxious, so losing focus ends selection mode too.
+        //
+        // The grace period is load-bearing, not a fudge: the picker is entered from the
+        // menu bar popover, and an accessory app that loses its last window is deactivated
+        // by AppKit as the previous app comes forward. Without the delay that deactivation
+        // would cancel the picker in the same breath as opening it.
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { WindowPickerController.shared.cancel() }
+            MainActor.assumeIsolated {
+                let controller = WindowPickerController.shared
+                guard controller.isActive,
+                      CACurrentMediaTime() - controller.startedAt >= controller.deactivationGrace
+                else { return }
+                controller.cancel()
+            }
         })
 
         // A display plugged in or unplugged mid-pick would leave a screen uncovered, or an

@@ -74,20 +74,32 @@ struct PopoverView: View {
 
     private var sourceRows: some View {
         VStack(spacing: 6) {
-            SelectorRow(
-                icon: "macwindow", tint: LoomTheme.accent, title: "Screen",
-                value: sourceName
-            ) {
-                Picker("Screen", selection: $coordinator.selectedSourceID) {
-                    if catalog.sources.isEmpty {
-                        Text("No sources").tag(SourceID?.none)
+            HStack(spacing: 6) {
+                ModeButton(
+                    icon: "macwindow", title: "Entire Screen",
+                    isSelected: !coordinator.isWindowSource
+                ) { coordinator.selectEntireScreen() }
+                ModeButton(
+                    icon: "macwindow.badge.plus", title: "Window",
+                    isSelected: coordinator.isWindowSource
+                ) { coordinator.beginWindowPicking() }
+            }
+
+            if coordinator.isWindowSource {
+                windowRow
+            } else if catalog.displays.count > 1 {
+                SelectorRow(
+                    icon: "display", tint: LoomTheme.accent, title: "Display",
+                    value: displayName
+                ) {
+                    Picker("Display", selection: $coordinator.selectedSourceID) {
+                        ForEach(catalog.displays) { source in
+                            Text(source.name).tag(SourceID?.some(source.id))
+                        }
                     }
-                    ForEach(catalog.sources) { source in
-                        Text(source.name).tag(SourceID?.some(source.id))
-                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
             }
 
             SelectorRow(
@@ -120,10 +132,54 @@ struct PopoverView: View {
         }
     }
 
-    private var sourceName: String {
+    /// The chosen window, and the way back into the picker. Tapping anywhere on the row
+    /// re-enters selection mode, so changing the target is one click from here.
+    private var windowRow: some View {
+        Button {
+            coordinator.beginWindowPicking()
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "macwindow.badge.plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LoomTheme.accent)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(LoomTheme.accent.opacity(0.15)))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("WINDOW")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(coordinator.selectedWindowName ?? "Choose a window…")
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                Text(coordinator.selectedWindowName == nil ? "Choose…" : "Change…")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LoomTheme.accent)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous)
+                    .fill(LoomTheme.rowFill))
+            .overlay(
+                RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous)
+                    .strokeBorder(LoomTheme.rowStroke))
+            .contentShape(RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            "Window: \(coordinator.selectedWindowName ?? "none chosen"). Choose a window.")
+    }
+
+    private var displayName: String {
         guard let id = coordinator.selectedSourceID,
-              let source = catalog.sources.first(where: { $0.id == id })
-        else { return catalog.sources.isEmpty ? "No sources available" : "Choose a source" }
+              let source = catalog.displays.first(where: { $0.id == id })
+        else { return catalog.displays.isEmpty ? "No display available" : "Choose a display" }
         return source.name
     }
 
@@ -166,7 +222,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var messages: some View {
-        if let error = catalog.lastError, catalog.sources.isEmpty {
+        if let error = catalog.lastError, catalog.displays.isEmpty {
             noticeLabel(error, icon: "display.trianglebadge.exclamationmark", tint: .secondary)
         }
         if let cameraNotice = coordinator.cameraNotice {
@@ -357,6 +413,39 @@ private struct PopoverWindowReader: NSViewRepresentable {
             guard let window = view.window else { return }
             RecordingCoordinator.shared.popoverWindow = window
         }
+    }
+}
+
+/// One of the two top-level source choices. Big enough to read as the primary decision on
+/// the panel, because it is: everything below it is a refinement of this answer.
+private struct ModeButton: View {
+    let icon: String
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 15, weight: .medium))
+                Text(title).font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(isSelected ? LoomTheme.accent : Color.primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous)
+                    .fill(isSelected ? LoomTheme.accent.opacity(0.14) : LoomTheme.rowFill))
+            .overlay(
+                RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? LoomTheme.accent.opacity(0.6) : LoomTheme.rowStroke,
+                        lineWidth: isSelected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: LoomTheme.rowCorner, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 

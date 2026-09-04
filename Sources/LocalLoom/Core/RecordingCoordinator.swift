@@ -69,6 +69,11 @@ final class RecordingCoordinator: ObservableObject {
             OverlayController.shared.update()
         }
     }
+    /// Label for the window chosen with the picker, kept beside `selectedSourceID` because
+    /// a `CGWindowID` is not something anyone can read. Only the picker writes it.
+    @Published var selectedWindowName: String? {
+        didSet { Preferences.windowName = selectedWindowName }
+    }
     @Published var selectedCameraID: String? {
         didSet {
             Preferences.cameraID = selectedCameraID
@@ -116,6 +121,7 @@ final class RecordingCoordinator: ObservableObject {
     private init() {
         bubblePosition = Preferences.bubblePosition
         if let raw = Preferences.sourceID { selectedSourceID = SourceID(rawValue: raw) }
+        selectedWindowName = Preferences.windowName
         selectedCameraID = Preferences.cameraID
         selectedMicrophoneID = Preferences.microphoneID
         isSettingUp = false
@@ -144,13 +150,35 @@ final class RecordingCoordinator: ObservableObject {
     /// The floating control panel and camera circle are on screen exactly when this is true.
     var overlaysVisible: Bool { state.isActive || popoverOpen }
 
+    /// True when the chosen source is a single window rather than a whole display.
+    var isWindowSource: Bool {
+        if case .window = selectedSourceID { return true }
+        return false
+    }
+
     func refreshSources() async {
         await catalog.refresh()
         // Restored selections may point at a display, window or device that is gone.
-        if let id = selectedSourceID, !catalog.sources.contains(where: { $0.id == id }) {
-            selectedSourceID = nil
+        switch selectedSourceID {
+        case .display(let displayID)?:
+            if !catalog.displays.contains(where: { $0.id == .display(displayID) }) {
+                selectedSourceID = nil
+            }
+        case .window(let windowID)?:
+            // Validated against the window server rather than `SCShareableContent`: it is
+            // cheaper, needs no await, and does not apply the size/title filters that a
+            // deliberately picked window has no reason to satisfy.
+            if WindowHitTester.windowExists(windowID) {
+                // Window titles change as the user works. Keep the label honest.
+                if let name = WindowHitTester.name(of: windowID) { selectedWindowName = name }
+            } else {
+                selectedSourceID = nil
+                selectedWindowName = nil
+            }
+        case nil:
+            break
         }
-        if selectedSourceID == nil { selectedSourceID = catalog.sources.first?.id }
+        if selectedSourceID == nil { selectedSourceID = defaultDisplayID }
         if let id = selectedCameraID, !catalog.cameras.contains(where: { $0.id == id }) {
             selectedCameraID = nil
         }
@@ -161,6 +189,48 @@ final class RecordingCoordinator: ObservableObject {
 
     func toggleRecording() {
         if state.isBusy { stop() } else { start() }
+    }
+
+    // MARK: - Source selection
+
+    /// The display the user is most likely to mean: the one with keyboard focus.
+    private var defaultDisplayID: SourceID? {
+        if let screen = NSScreen.main,
+           let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+               as? NSNumber)?.uint32Value,
+           catalog.displays.contains(where: { $0.id == .display(number) }) {
+            return .display(number)
+        }
+        return catalog.displays.first?.id
+    }
+
+    /// Switches to whole-display capture, keeping whichever display is already chosen.
+    func selectEntireScreen() {
+        guard !state.isBusy, isWindowSource else { return }
+        selectedWindowName = nil
+        selectedSourceID = defaultDisplayID
+    }
+
+    /// Enters the interactive picker: the user points at the window they want.
+    ///
+    /// The popover is faded out for the duration and comes back showing the choice.
+    /// Cancelling — Escape, a right click, a click on bare desktop, or LocalLoom losing
+    /// focus — leaves the previous selection exactly as it was, because nothing is written
+    /// unless a window actually comes back.
+    func beginWindowPicking() {
+        guard !state.isBusy, !WindowPickerController.shared.isActive else { return }
+        let popover = popoverWindow
+        // The control bar and camera circle would otherwise sit under the dim wash and
+        // read as part of the thing being chosen.
+        OverlayController.shared.hideAll()
+        WindowPickerController.shared.begin(hiding: popover) { [weak self] picked in
+            guard let self else { return }
+            if let picked {
+                self.selectedWindowName = picked.displayName
+                self.selectedSourceID = .window(picked.windowID)
+            }
+            OverlayController.shared.update()
+        }
     }
 
     // MARK: - Popover presence

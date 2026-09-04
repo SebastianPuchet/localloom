@@ -9,6 +9,7 @@ enum Preferences {
         static let sourceID = "lastSourceID"
         static let cameraID = "lastCameraID"
         static let microphoneID = "lastMicrophoneID"
+        static let windowName = "lastWindowName"
         static let bubbleX = "bubblePositionX"
         static let bubbleY = "bubblePositionY"
         static let controlBarX = "controlBarOriginX"
@@ -19,6 +20,15 @@ enum Preferences {
     static var sourceID: String? {
         get { defaults.string(forKey: Key.sourceID) }
         set { defaults.set(newValue, forKey: Key.sourceID) }
+    }
+
+    /// Human-readable name of the window chosen with the picker.
+    ///
+    /// Window ids are not stable across relaunches of the app that owns them, so this is a
+    /// label to show in the popover, not an identifier. `SourceID` remains the identity.
+    static var windowName: String? {
+        get { defaults.string(forKey: Key.windowName) }
+        set { defaults.set(newValue, forKey: Key.windowName) }
     }
 
     /// `AVCaptureDevice.uniqueID`, or nil for "no camera".
